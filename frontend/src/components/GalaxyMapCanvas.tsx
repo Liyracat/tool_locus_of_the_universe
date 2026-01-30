@@ -521,6 +521,7 @@ function drawEdgesForNode(
   nodeGraphics: Map<string, Container>
 ) {
   graphics.clear();
+  graphics.blendMode = "add";
   for (const link of links) {
     if (!link.is_active) continue;
     if (link.link_type !== "near") continue;
@@ -533,9 +534,16 @@ function drawEdgesForNode(
     const color = new Color(EDGE_COLOR[link.link_type] || "#c7d2fe").toNumber();
     const width = EDGE_WIDTH[link.link_type] ?? 1.2;
     const alpha = clamp(link.weight * 0.9, 0.15, 0.75);
-    graphics.lineStyle(width, color, alpha);
-    graphics.moveTo(srcNodeGraphic.x, srcNodeGraphic.y);
-    graphics.lineTo(dstNodeGraphic.x, dstNodeGraphic.y);
+    drawGlowLine(
+      graphics,
+      srcNodeGraphic.x,
+      srcNodeGraphic.y,
+      dstNodeGraphic.x,
+      dstNodeGraphic.y,
+      color,
+      width,
+      alpha
+    );
   }
 }
 
@@ -546,6 +554,7 @@ function drawTopEdges(
   topN: number
 ) {
   graphics.clear();
+  graphics.blendMode = "add";
   const adjacency = new Map<string, GalaxyLink[]>();
   links.forEach((link) => {
     if (!link.is_active) return;
@@ -569,9 +578,51 @@ function drawTopEdges(
       const width = EDGE_WIDTH[link.link_type] ?? 1.2;
       const color = new Color(EDGE_COLOR[link.link_type] || "#c7d2fe").toNumber();
       const alpha = clamp(link.weight * 0.9, 0.15, 0.65);
-      graphics.lineStyle(width, color, alpha);
-      graphics.moveTo(src.x, src.y);
-      graphics.lineTo(dst.x, dst.y);
+      drawGlowLine(graphics, src.x, src.y, dst.x, dst.y, color, width, alpha);
     });
   }
+}
+
+function drawGlowLine(
+  g: Graphics,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  color: number,
+  baseWidth: number,
+  alpha: number
+) {
+  // outer glow
+  g.lineStyle({
+    width: baseWidth * 2.6,
+    color,
+    alpha: clamp(alpha * 0.22, 0.03, 0.25),
+    cap: "round",
+    join: "round",
+  });
+  g.moveTo(x1, y1);
+  g.lineTo(x2, y2);
+
+  // mid glow
+  g.lineStyle({
+    width: baseWidth * 1.7,
+    color,
+    alpha: clamp(alpha * 0.35, 0.05, 0.35),
+    cap: "round",
+    join: "round",
+  });
+  g.moveTo(x1, y1);
+  g.lineTo(x2, y2);
+
+  // core
+  g.lineStyle({
+    width: baseWidth,
+    color,
+    alpha: clamp(alpha, 0.08, 0.75),
+    cap: "round",
+    join: "round",
+  });
+  g.moveTo(x1, y1);
+  g.lineTo(x2, y2);
 }
