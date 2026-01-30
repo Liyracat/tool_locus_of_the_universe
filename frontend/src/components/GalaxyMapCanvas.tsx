@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Application,
   Assets,
-  BLEND_MODES,
   Color,
   Container,
   Graphics,
@@ -361,7 +360,7 @@ export default function GalaxyMapCanvas({
       const bloom = new Sprite(tex);
       bloom.anchor.set(0.5);
       bloom.tint = baseColor;
-      bloom.blendMode = BLEND_MODES.ADD;
+      bloom.blendMode = "add";
       bloom.alpha = 0.10 + node.glow_intensity * 0.10;
       const bloomSize = (node.radius * 2) * (4.0 + node.glow_intensity * 1.8);
       bloom.width = bloomSize;
@@ -371,7 +370,7 @@ export default function GalaxyMapCanvas({
       const halo = new Sprite(tex);
       halo.anchor.set(0.5);
       halo.tint = baseColor;
-      halo.blendMode = BLEND_MODES.ADD;
+      halo.blendMode = "add";
       halo.alpha = 0.25 + node.glow_intensity * 0.25;
       const haloSize = (node.radius * 2) * (2.2 + node.glow_intensity * 1.2);
       halo.width = haloSize;
