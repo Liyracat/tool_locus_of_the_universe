@@ -1,0 +1,245 @@
+:root {
+  font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  color: #1f2933;
+  background: #f7f8fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: #111827;
+  color: #f8fafc;
+}
+
+.app-title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.app-nav {
+  display: flex;
+  gap: 12px;
+}
+
+.nav-link {
+  color: #e2e8f0;
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.nav-link:hover {
+  border-color: #94a3b8;
+}
+
+.app-main {
+  flex: 1;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.08);
+}
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.panel-row.column {
+  align-items: stretch;
+}
+
+.filters {
+  margin-top: 12px;
+  gap: 12px;
+}
+
+.filter-item {
+  background: #f1f5f9;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.breadcrumb {
+  font-weight: 600;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.section-title {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.galaxy-panel {
+  background: #0f172a;
+  border-radius: 20px;
+  padding: 16px;
+  color: #e2e8f0;
+  box-shadow: inset 0 0 40px rgba(59, 130, 246, 0.2);
+}
+
+.galaxy-header {
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.galaxy-canvas {
+  min-height: 360px;
+  border-radius: 16px;
+  background: radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.3), transparent 50%),
+    radial-gradient(circle at 80% 10%, rgba(236, 72, 153, 0.2), transparent 50%),
+    #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.galaxy-placeholder {
+  padding: 16px 20px;
+  border: 1px dashed rgba(148, 163, 184, 0.6);
+  border-radius: 12px;
+}
+
+.label {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.textarea,
+.input,
+select.input {
+  width: 100%;
+  border: 1px solid #cbd5f5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.table th,
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+.contents-cell {
+  white-space: pre-wrap;
+}
+
+.empty-cell {
+  text-align: center;
+  color: #64748b;
+  padding: 16px 0;
+}
+
+.button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  background: #e2e8f0;
+  cursor: pointer;
+}
+
+.button.primary {
+  background: #3b82f6;
+  color: #fff;
+}
+
+.button.ghost {
+  background: transparent;
+  border: 1px solid #cbd5f5;
+}
+
+.button.tiny {
+  padding: 6px 10px;
+  margin-right: 6px;
+}
+
+.status-text {
+  margin-top: 10px;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.form-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+.mono {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .panel-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .panel-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
