@@ -56,7 +56,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/api/import/preview", response_model=ImportPreviewResponse)
+@app.post("/import/preview", response_model=ImportPreviewResponse)
 def import_preview(payload: ImportPreviewRequest) -> ImportPreviewResponse:
     with get_conn() as conn:
         speakers = conn.execute(
@@ -67,7 +67,7 @@ def import_preview(payload: ImportPreviewRequest) -> ImportPreviewResponse:
     return ImportPreviewResponse(parts=parts)
 
 
-@app.post("/api/import/commit", status_code=201)
+@app.post("/import/commit", status_code=201)
 def import_commit(payload: ImportCommitRequest) -> dict:
     if not payload.parts:
         raise HTTPException(status_code=400, detail="parts is required")
@@ -103,7 +103,7 @@ def import_commit(payload: ImportCommitRequest) -> dict:
     return {"created_utterance_ids": created_ids, "thread_id": payload.thread_id}
 
 
-@app.get("/api/speakers", response_model=List[Speaker])
+@app.get("/speakers", response_model=List[Speaker])
 def list_speakers() -> List[Speaker]:
     with get_conn() as conn:
         rows = conn.execute(
@@ -112,7 +112,7 @@ def list_speakers() -> List[Speaker]:
     return [Speaker(**dict(row)) for row in rows]
 
 
-@app.post("/api/speakers", response_model=Speaker, status_code=201)
+@app.post("/speakers", response_model=Speaker, status_code=201)
 def create_speaker(payload: SpeakerCreate) -> Speaker:
     with get_conn() as conn:
         conn.execute(
@@ -132,7 +132,7 @@ def create_speaker(payload: SpeakerCreate) -> Speaker:
     return Speaker(**dict(row))
 
 
-@app.put("/api/speakers/{speaker_id}", response_model=Speaker)
+@app.put("/speakers/{speaker_id}", response_model=Speaker)
 def update_speaker(speaker_id: str, payload: SpeakerUpdate) -> Speaker:
     with get_conn() as conn:
         conn.execute(
@@ -156,14 +156,14 @@ def update_speaker(speaker_id: str, payload: SpeakerUpdate) -> Speaker:
     return Speaker(**dict(row))
 
 
-@app.delete("/api/speakers/{speaker_id}", status_code=204)
+@app.delete("/speakers/{speaker_id}", status_code=204)
 def delete_speaker(speaker_id: str) -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM speakers WHERE speaker_id = :speaker_id", {"speaker_id": speaker_id})
     return None
 
 
-@app.get("/api/utterance-roles", response_model=List[UtteranceRole])
+@app.get("/utterance-roles", response_model=List[UtteranceRole])
 def list_utterance_roles() -> List[UtteranceRole]:
     with get_conn() as conn:
         rows = conn.execute(
@@ -172,7 +172,7 @@ def list_utterance_roles() -> List[UtteranceRole]:
     return [UtteranceRole(**dict(row)) for row in rows]
 
 
-@app.post("/api/utterance-roles", response_model=UtteranceRole, status_code=201)
+@app.post("/utterance-roles", response_model=UtteranceRole, status_code=201)
 def create_utterance_role(payload: UtteranceRoleCreate) -> UtteranceRole:
     with get_conn() as conn:
         conn.execute(
@@ -188,7 +188,7 @@ def create_utterance_role(payload: UtteranceRoleCreate) -> UtteranceRole:
     return UtteranceRole(**dict(row))
 
 
-@app.put("/api/utterance-roles/{utterance_role_id}", response_model=UtteranceRole)
+@app.put("/utterance-roles/{utterance_role_id}", response_model=UtteranceRole)
 def update_utterance_role(utterance_role_id: int, payload: UtteranceRoleUpdate) -> UtteranceRole:
     with get_conn() as conn:
         conn.execute(
@@ -209,7 +209,7 @@ def update_utterance_role(utterance_role_id: int, payload: UtteranceRoleUpdate) 
     return UtteranceRole(**dict(row))
 
 
-@app.delete("/api/utterance-roles/{utterance_role_id}", status_code=204)
+@app.delete("/utterance-roles/{utterance_role_id}", status_code=204)
 def delete_utterance_role(utterance_role_id: int) -> None:
     with get_conn() as conn:
         conn.execute(
@@ -219,7 +219,7 @@ def delete_utterance_role(utterance_role_id: int) -> None:
     return None
 
 
-@app.get("/api/worker-jobs", response_model=List[WorkerJob])
+@app.get("/worker-jobs", response_model=List[WorkerJob])
 def list_worker_jobs() -> List[WorkerJob]:
     with get_conn() as conn:
         rows = conn.execute(
@@ -233,7 +233,7 @@ def list_worker_jobs() -> List[WorkerJob]:
     return [WorkerJob(**dict(row)) for row in rows]
 
 
-@app.post("/api/worker-jobs/{job_id}/retry", status_code=200)
+@app.post("/worker-jobs/{job_id}/retry", status_code=200)
 def retry_worker_job(job_id: str) -> dict:
     with get_conn() as conn:
         row = conn.execute(
@@ -272,7 +272,7 @@ def _build_in_clause(values: List[str], prefix: str) -> tuple[str, dict]:
     return clause, params
 
 
-@app.get("/api/map")
+@app.get("/map")
 def get_map(
     view: str = "global",
     cluster_id: str | None = None,
