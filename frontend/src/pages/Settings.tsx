@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, Speaker, UtteranceRole, WorkerJob } from "../api";
 
 const emptySpeaker = {
@@ -92,13 +93,14 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="page">
-      <section className="panel">
-        <div className="panel-row">
-          <div className="breadcrumb">パンくず: 設定</div>
-        </div>
-        {status && <div className="status-text">{status}</div>}
-      </section>
+    <div className="page page-shell">
+      <header className="page-header">
+        <div className="breadcrumb">設定</div>
+        <Link to="/" className="text-link">
+          戻る / トップ
+        </Link>
+      </header>
+      {status && <div className="status-text">{status}</div>}
 
       <section className="panel">
         <div className="panel-row">

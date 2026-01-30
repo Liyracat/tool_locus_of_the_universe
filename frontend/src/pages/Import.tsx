@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api, ImportPreviewResponse } from "../api";
 
 export default function ImportPage() {
@@ -39,11 +40,15 @@ export default function ImportPage() {
   };
 
   return (
-    <div className="page">
+    <div className="page page-shell">
+      <header className="page-header">
+        <div className="breadcrumb">インポート</div>
+        <Link to="/" className="text-link">
+          戻る / トップ
+        </Link>
+      </header>
+
       <section className="panel">
-        <div className="panel-row">
-          <div className="breadcrumb">パンくず: インポート</div>
-        </div>
         <div className="panel-row column">
           <label className="label">テキスト入力フォーム</label>
           <textarea

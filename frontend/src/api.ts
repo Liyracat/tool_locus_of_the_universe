@@ -58,6 +58,38 @@ export type WorkerJob = {
   updated_at: string;
 };
 
+export type MapNode = {
+  id: string;
+  node_type: "seed" | "cluster" | "galaxy" | "utterance" | string;
+  x: number;
+  y: number;
+  radius: number;
+  color_key: string;
+  glow_intensity: number;
+  title?: string;
+  preview?: string;
+  meta?: Record<string, unknown>;
+  label?: string;
+};
+
+export type MapLink = {
+  id: string;
+  src_id: string;
+  dst_id: string;
+  link_type: string;
+  weight: number;
+  is_active: boolean;
+  origin: "edge" | "utterance_seed" | string;
+};
+
+export type MapResponse = {
+  breadcrumb: { label: string; view: string; cluster_id?: string | null }[];
+  filters: Record<string, unknown>;
+  nodes: MapNode[];
+  links: MapLink[];
+  match?: Record<string, { matched: boolean; score?: number }>;
+};
+
 export const api = {
   previewImport(raw_text: string) {
     return request<ImportPreviewResponse>("/api/import/preview", {
@@ -134,5 +166,27 @@ export const api = {
     return request<{ status: string }>(`/api/worker-jobs/${job_id}/retry`, {
       method: "POST",
     });
+  },
+  getMap(params?: {
+    view?: "global" | "cluster";
+    cluster_id?: string;
+    filter_types?: string[];
+    keyword?: string;
+    edge_types?: string[];
+    limit_nodes?: number;
+    include_orphans?: boolean;
+  }) {
+    const query = new URLSearchParams();
+    if (params?.view) query.set("view", params.view);
+    if (params?.cluster_id) query.set("cluster_id", params.cluster_id);
+    if (params?.keyword) query.set("keyword", params.keyword);
+    if (params?.limit_nodes) query.set("limit_nodes", String(params.limit_nodes));
+    if (typeof params?.include_orphans === "boolean") {
+      query.set("include_orphans", params.include_orphans ? "true" : "false");
+    }
+    params?.filter_types?.forEach((type) => query.append("filter_types", type));
+    params?.edge_types?.forEach((type) => query.append("edge_types", type));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return request<MapResponse>(`/api/map${suffix}`);
   },
 };

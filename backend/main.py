@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 
@@ -259,3 +259,167 @@ def retry_worker_job(job_id: str) -> dict:
             {"job_id": job_id},
         )
     return {"status": "queued"}
+
+
+def _build_in_clause(values: List[str], prefix: str) -> tuple[str, dict]:
+    params = {}
+    placeholders = []
+    for idx, value in enumerate(values):
+        key = f"{prefix}{idx}"
+        placeholders.append(f":{key}")
+        params[key] = value
+    clause = f"({', '.join(placeholders)})" if placeholders else "(NULL)"
+    return clause, params
+
+
+@app.get("/api/map")
+def get_map(
+    view: str = "global",
+    cluster_id: str | None = None,
+    filter_types: List[str] = Query(default=["seed", "cluster", "utterance"]),
+    keyword: str | None = None,
+    edge_types: List[str] = Query(default=["near", "part_of", "derived_from"]),
+    limit_nodes: int | None = None,
+    include_orphans: bool = False,
+) -> dict:
+    layout_kind = "global" if view == "global" else "temp"
+    nodes: List[dict] = []
+    links: List[dict] = []
+    match: dict[str, dict] = {}
+
+    with get_conn() as conn:
+        if "seed" in filter_types:
+            seed_rows = conn.execute(
+                """
+                SELECT l.target_id AS seed_id, l.x, l.y,
+                       s.title, s.body, s.review_status
+                FROM layouts l
+                JOIN seeds s ON s.seed_id = l.target_id
+                WHERE l.layout_kind = :layout_kind AND l.target_type = 'seed'
+                """,
+                {"layout_kind": layout_kind},
+            ).fetchall()
+            for row in seed_rows:
+                nodes.append(
+                    {
+                        "id": row["seed_id"],
+                        "node_type": "seed",
+                        "x": row["x"],
+                        "y": row["y"],
+                        "radius": 6,
+                        "color_key": "seed",
+                        "glow_intensity": 0.5,
+                        "title": row["title"],
+                        "label": row["title"],
+                        "preview": row["body"][:60] if row["body"] else None,
+                        "meta": {"review_status": row["review_status"]},
+                    }
+                )
+
+        if "cluster" in filter_types:
+            cluster_rows = conn.execute(
+                """
+                SELECT l.target_id AS cluster_id, l.x, l.y,
+                       c.cluster_name, c.cluster_overview, c.cluster_level
+                FROM layouts l
+                JOIN clusters c ON c.cluster_id = l.target_id
+                WHERE l.layout_kind = :layout_kind AND l.target_type = 'cluster'
+                """,
+                {"layout_kind": layout_kind},
+            ).fetchall()
+            for row in cluster_rows:
+                nodes.append(
+                    {
+                        "id": row["cluster_id"],
+                        "node_type": "galaxy" if row["cluster_level"] == "galaxy" else "cluster",
+                        "x": row["x"],
+                        "y": row["y"],
+                        "radius": 12 if row["cluster_level"] == "galaxy" else 10,
+                        "color_key": "cluster",
+                        "glow_intensity": 0.8,
+                        "title": row["cluster_name"],
+                        "label": row["cluster_name"],
+                        "preview": row["cluster_overview"][:60] if row["cluster_overview"] else None,
+                        "meta": {"cluster_level": row["cluster_level"]},
+                    }
+                )
+
+        node_ids = {node["id"] for node in nodes}
+
+        if edge_types:
+            clause, params = _build_in_clause(edge_types, "edge_type_")
+            edge_rows = conn.execute(
+                f"""
+                SELECT edge_id, src_id, dst_id, edge_type, weight, is_active
+                FROM edges
+                WHERE edge_type IN {clause} AND is_active = 1
+                """,
+                params,
+            ).fetchall()
+            for row in edge_rows:
+                if row["src_id"] not in node_ids or row["dst_id"] not in node_ids:
+                    continue
+                links.append(
+                    {
+                        "id": f"edge:{row['edge_id']}",
+                        "src_id": row["src_id"],
+                        "dst_id": row["dst_id"],
+                        "link_type": row["edge_type"],
+                        "weight": row["weight"] or 0.5,
+                        "is_active": bool(row["is_active"]),
+                        "origin": "edge",
+                    }
+                )
+
+        if include_orphans:
+            us_rows = conn.execute(
+                """
+                SELECT utterance_id, seed_id, relation_type, confidence, created_at
+                FROM utterance_seeds
+                """,
+            ).fetchall()
+            for row in us_rows:
+                if row["seed_id"] not in node_ids:
+                    continue
+                links.append(
+                    {
+                        "id": f"us:{row['utterance_id']}:{row['seed_id']}:{row['relation_type']}",
+                        "src_id": row["utterance_id"],
+                        "dst_id": row["seed_id"],
+                        "link_type": row["relation_type"],
+                        "weight": row["confidence"] or 0.4,
+                        "is_active": True,
+                        "origin": "utterance_seed",
+                    }
+                )
+
+    if keyword:
+        keyword_lower = keyword.lower()
+        for node in nodes:
+            haystack = " ".join(
+                str(value)
+                for value in (node.get("title"), node.get("preview"), node.get("meta"))
+                if value
+            ).lower()
+            matched = keyword_lower in haystack
+            match[node["id"]] = {"matched": matched}
+
+    if limit_nodes is not None:
+        nodes = nodes[:limit_nodes]
+
+    breadcrumb = [{"label": "全体ビュー", "view": view, "cluster_id": cluster_id}]
+    if view == "cluster" and cluster_id:
+        breadcrumb.append({"label": cluster_id, "view": "cluster", "cluster_id": cluster_id})
+
+    return {
+        "breadcrumb": breadcrumb,
+        "filters": {
+            "view": view,
+            "filter_types": filter_types,
+            "edge_types": edge_types,
+            "keyword": keyword,
+        },
+        "nodes": nodes,
+        "links": links,
+        "match": match,
+    }
