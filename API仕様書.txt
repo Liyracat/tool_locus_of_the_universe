@@ -1,0 +1,71 @@
+0. 基本方針（前提）
+・画面は「宇宙ビュー（全体/cluster）」で ノード集合とリンク集合を取る
+・取得する線は edges と utterance_seeds を サーバ側で正規化して links として返す
+・詳細表示・編集は 個別取得＆個別更新
+・heavy処理（embedding/UMAP/クラスタリング）は 別バッチ（今は後回しでOK）
+
+1. トップ画面（宇宙）のAPI
+1-1. 宇宙ビュー取得（最重要）
+GET /api/map
+
+Query
+・view: global | cluster
+・cluster_id: string?（view=cluster時）
+・filter_types: seed,cluster,utterance の配列（未指定ならデフォルト）
+・keyword: string?（キーワード検索。該当しない星を減光するためのマッチ情報も返す）
+・edge_types: near,part_of,derived_from,... の配列（未指定ならデフォルト near + part_of + derived_from）
+・limit_nodes: number?（保険）
+・include_orphans: boolean?（未所属seedを出す、など）
+
+Response（例）
+・breadcrumb: [{label, view, cluster_id?}]
+・filters: 現在のフィルタ状態（表示用）
+・nodes: [{ id, node_type, x, y, radius, color_key, glow_intensity, title?, preview?, meta }]
+・links: [{ id, src_id, dst_id, link_type, weight, is_active, origin }]
+・origin: edge | utterance_seed
+・match: { node_id -> { matched: bool, score? } } ※減光判定用
+
+1-2. ホバー用概要取得（軽量）
+GET /api/nodes/{node_type}/{id}/summary
+
+Response
+・utterance: contents(短縮), speaker_name, conversation_at, utterance_role_name
+・seed: title, body(短縮), created_at, review_status
+・cluster: cluster_name, cluster_overview(短縮), created_at
+
+1-3. 線一覧（ホバー時）
+GET /api/nodes/{node_type}/{id}/links
+
+Query
+・link_types（任意）
+・active_only（default true）
+
+Response
+・links: [{ id, src_id, dst_id, link_type, weight, is_active, origin, label? }]
+・related_nodes（必要なら、相手ノードのタイトルだけ返す）
+
+2. 詳細窓・編集窓のAPI
+2-1. 詳細取得
+GET /api/utterances/{utterance_id}
+GET /api/seeds/{seed_id}
+GET /api/clusters/{cluster_id}
+
+2-2. 更新（編集窓保存）
+PATCH /api/utterances/{utterance_id}
+・speaker_id, conversation_at, contents, utterance_role_id（role_confidence=1にするのはサーバ側で）
+PATCH /api/seeds/{seed_id}
+・seed_type, title, body, created_from, canonical_seed_id
+・canonical_seed_id を入れたら「統合処理」は別で（今の設計通り）
+PATCH /api/clusters/{cluster_id}
+・cluster_name, cluster_overview
+
+3. 線編集（紐づく線一覧編集窓）
+3-1. relation_type変更（即保存）
+PATCH /api/links/{link_id}
+
+Body
+・link_type（relation_type）
+・is_active（削除は is_active=false）
+※ links は origin が edge か utterance_seed かで更新先テーブルが違うので、
+・サーバ側で link_id をグローバルに一意にしておく（推奨）
+　　・例：edge:{edge_id} / us:{utterance_seed_id} みたいな複合ID
