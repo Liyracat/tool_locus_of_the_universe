@@ -107,8 +107,12 @@ export default function GalaxyMapCanvas({
     y: number;
     visible: boolean;
   } | null>(null);
+  
+  const [pixiReady, setPixiReady] = useState(false);
+  const setupCleanupRef = useRef<null | (() => void)>(null);
 
   useEffect(() => {
+    console.log("useEffect start", containerRef.current);
     const host = containerRef.current;
     if (!host) return;
 
@@ -148,10 +152,10 @@ export default function GalaxyMapCanvas({
         return;
       }
 
-      // --- Load star texture (radical gradient) ---
-      // Place file at: public/radial_gradient.png
+      // --- Load star texture (radial gradient) ---
+      // Place file at: frontend/public/radial_gradient.png
       // Access path: /radial_gradient.png
-      await Assets.load("public/radial_gradient.png"); // public配下想定
+      await Assets.load("/radial_gradient.png");
 
       appRef.current = app;
       const canvas = ((app as unknown as { canvas?: HTMLCanvasElement }).canvas ??
@@ -176,6 +180,8 @@ export default function GalaxyMapCanvas({
       const labelLayer = new Container();
       world.addChild(labelLayer);
       labelsLayerRef.current = labelLayer;
+      
+      setPixiReady(true);
 
       const interactionTarget = app.stage;
       if ("eventMode" in interactionTarget) {
@@ -285,16 +291,23 @@ export default function GalaxyMapCanvas({
 
       app.ticker.add(pulseTick);
 
-       return () => {
+      return () => {
         app.ticker.remove(pulseTick);
         resizeObserver.disconnect();
       };
     };
 
-    void setup();
+    void setup().then((cleanup) => {
+      // setupが完了した後、useEffectのcleanupで呼べるように保持
+      if (typeof cleanup === "function") setupCleanupRef.current = cleanup;
+    });
 
     return () => {
       destroyed = true;
+      setPixiReady(false);
+      // setup内で登録したticker/observerの後始末
+      setupCleanupRef.current?.();
+      setupCleanupRef.current = null;
       if (appRef.current) {
         appRef.current.destroy(true);
         appRef.current = null;
@@ -313,11 +326,18 @@ export default function GalaxyMapCanvas({
     const app = appRef.current;
     const world = worldRef.current;
     const edgesLayer = edgesRef.current;
-    if (!app || !world || !edgesLayer) return;
+    if (!pixiReady || !app || !world || !edgesLayer) return;
 
     const nodesLayer = nodesLayerRef.current ?? undefined;
     const labelsLayer = labelsLayerRef.current ?? undefined;
+    console.log("nodesLayer", nodesLayer, "labelsLayer", labelsLayer);
     if (!nodesLayer || !labelsLayer) return;
+
+    const tex = Assets.get("/radial_gradient.png");
+    if (!tex) {
+      console.warn("radial_gradient.png texture not ready");
+      return;
+    }
 
     nodesLayer.removeChildren();
     labelsLayer.removeChildren();
@@ -348,9 +368,6 @@ export default function GalaxyMapCanvas({
       (star as any).cursor = "pointer"; // Containerにも効く
 
       const baseColor = new Color(color).toNumber();
-
-      // radialテクスチャを使う
-      const tex = Assets.get("/radial_gradient.png");
 
       const bloomAlpha = clamp(0.10 + node.glow_intensity * 0.10, 0.06, 0.30);
       const haloAlpha = clamp(0.25 + node.glow_intensity * 0.25, 0.18, 0.85);
@@ -478,7 +495,7 @@ export default function GalaxyMapCanvas({
     return () => {
       app.ticker.remove(cull);
     };
-  }, [nodes, links, edgeMode, topN, onNodeHover, onNodeClick]);
+  }, [pixiReady, nodes, links, edgeMode, topN, onNodeHover, onNodeClick]);
 
   return (
     <div className="galaxy-canvas-shell" ref={containerRef}>
