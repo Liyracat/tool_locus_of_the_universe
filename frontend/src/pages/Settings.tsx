@@ -92,6 +92,26 @@ export default function SettingsPage() {
     }
   };
 
+  const deleteSpeaker = async (speaker_id: string) => {
+    setStatus(null);
+    try {
+      await api.deleteSpeaker(speaker_id);
+      await loadAll();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "スピーカー削除に失敗しました");
+    }
+  };
+
+  const deleteRole = async (utterance_role_id: number) => {
+    setStatus(null);
+    try {
+      await api.deleteUtteranceRole(utterance_role_id);
+      await loadAll();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "ロール削除に失敗しました");
+    }
+  };
+
   return (
     <div className="page page-shell">
       <header className="page-header">
@@ -126,6 +146,7 @@ export default function SettingsPage() {
                   <td>{speaker.canonical_role}</td>
                   <td>
                     <button
+                      type="button"
                       className="button tiny"
                       onClick={() => {
                         setEditingSpeakerId(speaker.speaker_id);
@@ -140,8 +161,9 @@ export default function SettingsPage() {
                       編集
                     </button>
                     <button
+                      type="button"
                       className="button tiny ghost"
-                      onClick={() => api.deleteSpeaker(speaker.speaker_id).then(loadAll)}
+                      onClick={() => deleteSpeaker(speaker.speaker_id)}
                     >
                       削除
                     </button>
@@ -204,7 +226,7 @@ export default function SettingsPage() {
               }
             />
           </div>
-          <button className="button primary" onClick={submitSpeaker}>
+          <button type="button" className="button primary" onClick={submitSpeaker}>
             {editingSpeakerId ? "更新" : "保存"}
           </button>
         </div>
@@ -230,6 +252,7 @@ export default function SettingsPage() {
                   <td>{role.utterance_role_name}</td>
                   <td>
                     <button
+                      type="button"
                       className="button tiny"
                       onClick={() => {
                         setEditingRoleId(role.utterance_role_id);
@@ -239,8 +262,9 @@ export default function SettingsPage() {
                       編集
                     </button>
                     <button
+                      type="button"
                       className="button tiny ghost"
-                      onClick={() => api.deleteUtteranceRole(role.utterance_role_id).then(loadAll)}
+                      onClick={() => deleteRole(role.utterance_role_id)}
                     >
                       削除
                     </button>
@@ -266,7 +290,7 @@ export default function SettingsPage() {
               onChange={(event) => setRoleForm({ utterance_role_name: event.target.value })}
             />
           </div>
-          <button className="button primary" onClick={submitRole}>
+          <button type="button" className="button primary" onClick={submitRole}>
             {editingRoleId !== null ? "更新" : "保存"}
           </button>
         </div>
@@ -298,7 +322,7 @@ export default function SettingsPage() {
                   <td>{job.updated_at}</td>
                   <td>
                     {(job.status === "processing" || job.status === "failed") && (
-                      <button className="button tiny" onClick={() => retryJob(job.job_id)}>
+                      <button type="button" className="button tiny" onClick={() => retryJob(job.job_id)}>
                         再実施
                       </button>
                     )}
