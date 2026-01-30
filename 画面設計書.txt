@@ -1,0 +1,79 @@
+【トップ画面】
+utterance・cluster・seedが線で繋がって表示される場所。
+
+画面上部
+・上段左端：パンくずリスト
+・上段右端：インポートボタン（インポート画面へ遷移）、設定ボタン（設定画面へ遷移）
+・下段左端：フィルタ条件の表示「種別」「キーワード」「フィルタ追加ボタン」
+
+画面中央
+・全体的
+　　・クリックしホールドしたままカーソルを動かす：表示範囲の移動
+
+・星々
+　　・繋がりの表示には、DBのlayouts・edgesを用いて表現する。
+　　　　・全体ビューでは、cluster・clusterに紐づいていないseed・表示されているseedに紐づいているutteranceのみ表示
+　　　　・clusterビューでは、clusterに紐づいているclusterとseed、表示されているseedに紐づいているutteranceのみ表示
+　　　　・線はデフォルトで near/part_of/utterance_seed のみ（他はフィルタで追加）
+　　・ホバー：概要窓を表示（星の位置が画面の半分より上であれば星の下に、星の位置が画面の半分より下であれば星の上に表示する）
+　　・クリック：clusterの場合、clusterにフォーカスした画面に遷移する
+　　
+・概要窓
+　　・詳細ボタン→詳細窓に変化
+　　・utterance・cluster・seedの以下の記載内容を表示
+　　　　・utteranceの場合
+　　　　　　・上段：contents
+　　　　　　・下段：speaker_name、conversation_at、utterance_role_name
+　　　　・seedの場合
+　　　　　　・上段：title、body
+　　　　　　・下段：created_at、(review_statusがautoの時)「承認」ボタン・「修正」ボタン・「却下」ボタン
+　　　　・clusterの場合
+　　　　　　・上段：cluster_name、cluster_overview
+　　　　　　・下段：created_at
+・詳細窓
+　　・utterance・seed・clusterの各項目を全て表示
+　　・編集ボタン→編集窓に変化
+　　
+・編集窓
+　　・utterance・cluster・seedの以下の内容が編集可能
+　　　　・utteranceの場合
+　　　　　　・speaker_id（nameをサジェストで表示する）
+　　　　　　・conversation_at
+　　　　　　・contents
+　　　　　　・utterance_role_id（自動でutterance_role_confidenceが1に変更）
+　　　　・seedの場合
+　　　　　　・seed_type
+　　　　　　・title
+　　　　　　・body
+　　　　　　・created_from
+　　　　　　・canonical_seed_id（seed_b_idが表示seedのもののみ、seed_a_idをサジェストとして表示。seed_a_idをホバーするとtitle・bodyが表示される）
+　　　　・clusterの場合
+　　　　　　・cluster_name
+　　　　　　・cluster_overview
+　　・保存ボタン→変更内容をupdateする。seedでcanonical_seed_idを登録した場合、統合処理を別途行う。いずれもupdated_atを現在時刻に変更する。変更後は詳細窓に変化する。
+　　
+・星々を繋ぐ線
+　　utterance_seedとedgeの2種類の線を表現。描画コンポーネントに渡す線データは UI側で統一スキーマに正規化してから渡す。例：links: [{ id, src_id, dst_id, link_type, weight, is_active, origin }]　origin = utterance_seed or edge（デバッグ用）
+　　・線の当たり判定幅のみ太めに設定する。
+　　・ホバー：紐づく線一覧窓が表示（線の位置が画面の半分より上であれば星の下に、線の位置が画面の半分より下であれば星の上に表示する）
+　　
+・紐づく線一覧窓
+　　・一覧をクリック：紐づく線一覧編集窓に変化
+　　
+・紐づく線一覧編集窓
+　　・relation_typeがドロップダウンリストで変更可能。選択して即保存。
+　　・削除ボタン→is_activeを0に変更
+
+【インポート画面】
+・テキスト入力フォーム
+・プレビューボタン→テキスト入力フォームの内容を、分割規則に則って分割し、プレビュー一覧に表示
+・保存ボタン→分割した内容をutteranceに登録
+・プレビュー一覧
+　　・speaker_name、conversation_at、contentsに該当する値を表示
+
+【設定画面】
+・以下のDBのCRUDが行えるフォーム
+　　・speakers
+　　・utterance_roles
+・worker_jobsの一覧
+　　・statusがprocessingまたはfailedの場合、「再実施」ボタンを表示→statusをqueued、locked_at・lock_owner・started_at・finished_at・errorをNULLに変更

@@ -1,0 +1,282 @@
+インポート画面で行うテキストの分割の行い方
+※他プロジェクトと同じ分割をしてほしい。参考までに以下を配置する。本プロジェクトのutteranceが参考資料のcardと同等
+
+---
+
+_IMPORT_DELIM_PATTERN = re.compile(r"(。|！　|？　|♪　|[a-z]\. |\)\. |\.\" |! |\? )")
+
+
+def _normalize_import_text(raw_text: str) -> str:
+    return raw_text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _find_first_delim_end(text: str, start: int) -> Optional[int]:
+    match = _IMPORT_DELIM_PATTERN.search(text, pos=start)
+    return match.end() if match else None
+
+
+def _find_first_double_newline(text: str, start: int) -> Optional[int]:
+    idx = text.find("\n\n", start)
+    return idx if idx != -1 else None
+
+
+def _split_speaker_text(text: str, *, allow_overlap: bool) -> list[str]:
+    parts: list[str] = []
+    text_len = len(text)
+    start = 0
+    prev_end = 0
+    while start < text_len:
+        while start < text_len and text[start].isspace():
+            start += 1
+        if start >= text_len:
+            break
+        search_from = max(start, prev_end) if allow_overlap else start
+        min_double_start = start + 300
+        double_search_from = max(search_from, min_double_start)
+        next_double = _find_first_double_newline(text, double_search_from)
+
+        next_delim = None
+        min_delim_start = start + 450
+        if text_len > min_delim_start:
+            delim_search_from = max(search_from, min_delim_start)
+            next_delim = _find_first_delim_end(text, delim_search_from)
+
+        end: Optional[int] = None
+        if next_double is not None:
+            end = next_double
+        elif next_delim is not None:
+            end = next_delim
+
+        if end is None:
+            end = start + 600 if (start + 600) < text_len else text_len
+
+        if end <= start:
+            end = min(start + 1, text_len)
+
+        segment = text[start:end].strip()
+        if segment:
+            parts.append(segment)
+
+        prev_end = end
+        if prev_end >= text_len:
+            break
+
+        if allow_overlap:
+            overlap_start = max(0, prev_end - 80)
+            overlap_delim = _find_first_delim_end(text, overlap_start)
+            if overlap_delim is not None and overlap_delim < prev_end:
+                start = overlap_delim
+                continue
+        start = prev_end
+
+    return parts
+
+
+def _merge_short_segments(segments: list[str], *, min_len: int) -> list[str]:
+    if not segments:
+        return []
+    merged: list[str] = []
+    buffer = ""
+    for segment in segments:
+        if buffer:
+            buffer = f"{buffer}\n{segment}"
+        else:
+            buffer = segment
+        if len(buffer) >= min_len:
+            merged.append(buffer)
+            buffer = ""
+    if buffer:
+        merged.append(buffer)
+    return merged
+
+
+def _split_import_blocks(raw_text: str, speaker_map: dict[str, dict]) -> list[tuple[dict, str]]:
+    normalized = _normalize_import_text(raw_text)
+    lines = normalized.split("\n")
+    blocks: list[tuple[dict, str]] = []
+    current_speaker: Optional[dict] = None
+    current_lines: list[str] = []
+
+    def flush_block() -> None:
+        nonlocal current_lines
+        if current_speaker is None:
+            return
+        text = "\n".join(current_lines).strip()
+        if text:
+            blocks.append((current_speaker, text))
+        current_lines = []
+
+    for line in lines:
+        normalized_line = line.strip().replace("：", ":")
+        if normalized_line:
+            speaker_label, remainder = normalized_line.split(":", 1) if ":" in normalized_line else (None, None)
+            if speaker_label and speaker_label in speaker_map:
+                flush_block()
+                current_speaker = speaker_map[speaker_label]
+                remainder = remainder.strip() if remainder else ""
+                if remainder:
+                    current_lines.append(remainder)
+                continue
+        if current_speaker is None:
+            if not normalized_line:
+                continue
+            raise HTTPException(status_code=400, detail="Speaker definition line is required before content.")
+        current_lines.append(line.rstrip())
+
+    flush_block()
+    return blocks
+
+
+def split_import_text(raw_text: str, speaker_map: dict[str, dict]) -> list[dict]:
+    parts: list[dict] = []
+    message_id = 0
+    text_id = 0
+    for speaker, text in _split_import_blocks(raw_text, speaker_map):
+        message_id += 1
+        text_id = 0
+        segments = _split_speaker_text(text, allow_overlap=True)
+        segments = _merge_short_segments(segments, min_len=300)
+        for segment in segments:
+            text_id += 1
+            parts.append(
+                {
+                    "message_id": message_id,
+                    "text_id": text_id,
+                    "speaker_id": speaker["speaker_id"],
+                    "speaker_name": speaker["speaker_name"],
+                    "contents": segment,
+                }
+            )
+    return parts
+
+
+@app.post("/import/preview")
+async def import_preview(payload: ImportPreviewRequest) -> ImportPreviewResponse:
+    with db_session() as conn:
+        speakers = fetch_all(conn, "SELECT speaker_id, speaker_name, speaker_role FROM speakers ORDER BY speaker_id", {})
+    speaker_map = {speaker["speaker_role"]: speaker for speaker in speakers}
+    parts = split_import_text(payload.raw_text, speaker_map)
+    return ImportPreviewResponse(
+        thread_id=str(uuid.uuid4()),
+        split_version=1,
+        parts=parts,
+    )
+
+
+@app.post("/import/commit", status_code=201)
+async def import_commit(payload: ImportCommitRequest) -> dict:
+    created_ids: list[int] = []
+    with db_session() as conn:
+        meaningless_rows = fetch_all(
+            conn,
+            "SELECT phrase, card_role_id FROM meaningless_phrases ORDER BY meaningless_id",
+            {},
+        )
+        meaningless_map: dict[str, int] = {}
+        for row in meaningless_rows:
+            phrase = row["phrase"]
+            if phrase not in meaningless_map:
+                meaningless_map[phrase] = row["card_role_id"]
+        for part in payload.parts:
+            split_key = part["text_id"]
+            matched_role_id = meaningless_map.get(part["contents"])
+            cur = conn.execute(
+                """
+                INSERT INTO cards (
+                  thread_id, message_id, text_id, split_key, split_version,
+                  speaker_id, conversation_at,
+                  contents, is_edited, visibility,
+                  card_role_id, card_role_confidence,
+                  created_at, updated_at
+                ) VALUES (
+                  :thread_id, :message_id, :text_id, :split_key, :split_version,
+                  :speaker_id, CURRENT_TIMESTAMP,
+                  :contents, 0, 'normal',
+                  :card_role_id, :card_role_confidence,
+                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                );
+                """,
+                {
+                    "thread_id": payload.thread_id,
+                    "message_id": part["message_id"],
+                    "text_id": part["text_id"],
+                    "split_key": split_key,
+                    "split_version": 1,
+                    "speaker_id": part["speaker_id"],
+                    "contents": part["contents"],
+                    "card_role_id": matched_role_id,
+                    "card_role_confidence": 0.8,
+                },
+            )
+            created_ids.append(cur.lastrowid)
+    return {"created_card_ids": created_ids, "thread_id": payload.thread_id}
+
+---
+
+
+目的:
+2Dの宇宙マップ上に、ノード（星）とエッジ（関係線）を描画する。
+星は seed / cluster / galaxy / utterance 等の種別を持つ。線は edge_type を持つ。
+
+描画エンジン:
+PixiJS（Canvas/WebGL）。最初は2Dのみ。
+
+入力データ（最低限）:
+- nodes: [{ id, node_type, x, y, radius, glow_intensity, color_key, label?, meta... }]
+  - x,y はレイアウト済み座標（UMAPなどの結果）
+  - node_type は seed / cluster / galaxy / utterance 等
+- edges: [{ id, src_id, dst_id, edge_type, weight, is_active }]
+  - edge_type: near / part_of / supports / contrasts / inspired_by / same_topic
+  - weight: 0..1（類似度など） ※nearの描画強度に使用
+  - is_active=falseは描画しない
+
+表示方針（線の基本ルール）:
+- 既定では near のみ描画対象。ただし「表示設定」で edge_type を切替可能にする。
+- 既定では線は常時全表示しない。混雑を防ぐため、以下のいずれかのモードを実装する:
+  Mode A（推奨）:
+    - 線は非表示
+    - ノードホバー時に、そのノードに接続する線のみ表示（nearのみ）
+  Mode B:
+    - 常時表示するのは near の上位N本のみ（例: weight上位3本）
+    - ノードホバー時に追加でそのノードの接続線を表示
+
+線の描画仕様:
+- 線は直線（ベジェや曲線は後回し）。
+- 線の透明度は weight に比例（例: alpha = clamp(weight * K, min, max)）。
+- 線の太さは edge_type ごとに固定値（nearが最も細い）。
+- 色は edge_type ごとにキーで指定（色の決定自体はUI側設定にする）。
+- 描画負荷軽減のため、線は可能なら Graphics をまとめて描く（個別オブジェクト乱立を避ける）。
+- ズームに応じて線の太さ/透明度は調整（遠景では線を薄くする、一定以下なら描画しない等）。
+- 線データは utterance_seeds と edges をUI層で正規化して、描画コンポーネントには1種類の links 配列として渡すこと
+
+ノードの描画仕様:
+- 星は円形スプライト or Graphicsで描画。
+- 種別ごとに見た目を変更（色/サイズ/輝度）。
+- ホバーでハイライト（外周グロー強化 or 半径微増）。
+- クリックで「フォーカス」状態にし、関連線表示や右ペイン詳細表示のトリガーにする。
+
+インタラクション:
+- Pan/Zoom（ドラッグ移動、ホイールズーム、スマホはピンチ）。
+- Hover:
+  - ノードの簡易ツールチップ表示（id/短いtitle/種別など）
+  - Mode Aの場合：そのノードに接続する near 線のみ表示
+- Click:
+  - ノード選択（選択状態を保持）
+  - 選択ノードの近傍ノード（near上位N）をハイライト
+  - cluster/galaxyクリックで「ズームイン（再描画）」イベントを発火（データ再取得は別レイヤ）
+  - 表示対象ノード集合（全体/cluster）で絞り込んだ後、その集合内の links のみ描画すること
+
+描画最適化（重要）:
+- ビューポート外のノードは描画しない/またはalpha=0（簡易でOK）
+- 遠景時はseedの詳細表示を抑える（例: seedはズーム一定以上でのみ表示）
+- エッジ数が多いので、常時全表示は避ける（上のModeで制御）
+- 可能ならレイヤ分け:
+  1) background（ガス画像）
+  2) edges layer
+  3) nodes layer
+  4) UI overlay（ツールチップ等）
+
+実装成果物:
+- GalaxyMapCanvas コンポーネント（PixiJS初期化/破棄）
+- データ更新（nodes/edges差し替え）時に再描画
+- Hover/Clickイベントを外に通知するコールバック
