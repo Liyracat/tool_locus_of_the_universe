@@ -22,7 +22,8 @@ body {
 
 .top-page {
   position: relative;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100vh;
   background: radial-gradient(circle at 20% 20%, rgba(35, 73, 129, 0.65), transparent 40%),
     radial-gradient(circle at 80% 0%, rgba(92, 58, 145, 0.6), transparent 45%),
     #0a0f1f;
@@ -132,6 +133,7 @@ body {
 
 .galaxy-stage {
   position: relative;
+  min-height: 0;
   z-index: 1;
   flex: 1;
   margin: 0 24px 24px;

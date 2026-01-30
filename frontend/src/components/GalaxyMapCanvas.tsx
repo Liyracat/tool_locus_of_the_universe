@@ -83,6 +83,7 @@ export default function GalaxyMapCanvas({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
+  const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const edgesRef = useRef<Graphics | null>(null);
   const nodesLayerRef = useRef<Container | null>(null);
   const labelsLayerRef = useRef<Container | null>(null);
@@ -215,6 +216,8 @@ export default function GalaxyMapCanvas({
         const dy = current.y - last.y;
         worldRef.current.x += dx;
         worldRef.current.y += dy;
+        panRef.current.x += dx;
+        panRef.current.y += dy;
         last.copyFrom(current);
       });
 
@@ -232,6 +235,8 @@ export default function GalaxyMapCanvas({
           const after = world.toLocal(pointer);
           world.x += (after.x - before.x) * world.scale.x;
           world.y += (after.y - before.y) * world.scale.y;
+          panRef.current.x = world.x - sizeRef.current.width / 2;
+          panRef.current.y = world.y - sizeRef.current.height / 2;
         },
         { passive: false }
       );
@@ -239,13 +244,14 @@ export default function GalaxyMapCanvas({
       const resizeObserver = new ResizeObserver(() => {
         if (!appRef.current || !containerRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
+      
         appRef.current.renderer.resize(rect.width, rect.height);
-        const deltaX = rect.width / 2 - sizeRef.current.width / 2;
-        const deltaY = rect.height / 2 - sizeRef.current.height / 2;
+      
         if (worldRef.current) {
-          worldRef.current.x += deltaX;
-          worldRef.current.y += deltaY;
+          worldRef.current.x = rect.width / 2 + panRef.current.x;
+          worldRef.current.y = rect.height / 2 + panRef.current.y;
         }
+      
         sizeRef.current = { width: rect.width, height: rect.height };
       });
       resizeObserver.observe(host);
