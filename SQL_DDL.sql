@@ -275,7 +275,7 @@ CREATE INDEX IF NOT EXISTS idx_edges_type
 -- seed_merge_candidates
 -- =========================================
 
-CREATE TABLE seed_merge_candidates (
+CREATE TABLE IF NOT EXISTS seed_merge_candidates (
     candidate_id TEXT PRIMARY KEY,         -- UUID
 
     seed_a_id TEXT NOT NULL,                -- 統合先候補（canonical）
