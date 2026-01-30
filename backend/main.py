@@ -4,20 +4,36 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 
-from .db import get_conn, init_db
-from .schemas import (
-    ImportPreviewRequest,
-    ImportPreviewResponse,
-    ImportCommitRequest,
-    SpeakerCreate,
-    SpeakerUpdate,
-    Speaker,
-    UtteranceRoleCreate,
-    UtteranceRoleUpdate,
-    UtteranceRole,
-    WorkerJob,
-)
-from .import_splitter import split_import_text
+try:
+    from .db import get_conn, init_db
+    from .schemas import (
+        ImportPreviewRequest,
+        ImportPreviewResponse,
+        ImportCommitRequest,
+        SpeakerCreate,
+        SpeakerUpdate,
+        Speaker,
+        UtteranceRoleCreate,
+        UtteranceRoleUpdate,
+        UtteranceRole,
+        WorkerJob,
+    )
+    from .import_splitter import split_import_text
+except ImportError:
+    from db import get_conn, init_db
+    from schemas import (
+        ImportPreviewRequest,
+        ImportPreviewResponse,
+        ImportCommitRequest,
+        SpeakerCreate,
+        SpeakerUpdate,
+        Speaker,
+        UtteranceRoleCreate,
+        UtteranceRoleUpdate,
+        UtteranceRole,
+        WorkerJob,
+    )
+    from import_splitter import split_import_text
 
 app = FastAPI(title="tool_locus_of_the_universe")
 
