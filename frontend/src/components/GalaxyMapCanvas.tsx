@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Application,
+  Assets,
+  BLEND_MODES,
   Color,
   Container,
   Graphics,
   Point,
+  Sprite,
   Text,
   TextStyle,
 } from "pixi.js";
@@ -82,10 +85,22 @@ export default function GalaxyMapCanvas({
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
   const edgesRef = useRef<Graphics | null>(null);
-  const nodesRef = useRef<Map<string, Graphics>>(new Map());
+  const nodesLayerRef = useRef<Container | null>(null);
+  const labelsLayerRef = useRef<Container | null>(null);
+  const nodesRef = useRef<Map<string, Container>>(new Map());
   const labelRef = useRef<Map<string, Text>>(new Map());
   const sizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
   const hoverRef = useRef<GalaxyNode | null>(null);
+  const pulseRef = useRef<
+    Array<{
+      nodeId: string;
+      halo: Sprite;
+      bloom: Sprite;
+      baseHaloAlpha: number;
+      baseBloomAlpha: number;
+      phase: number;
+    }>
+  >([]);
   const [tooltip, setTooltip] = useState<{
     label: string;
     type: string;
@@ -134,6 +149,11 @@ export default function GalaxyMapCanvas({
         return;
       }
 
+      // --- Load star texture (radical gradient) ---
+      // Place file at: public/radial_gradient.png
+      // Access path: /radial_gradient.png
+      await Assets.load("public/radial_gradient.png"); // public配下想定
+
       appRef.current = app;
       const canvas = ((app as unknown as { canvas?: HTMLCanvasElement }).canvas ??
         (app as unknown as { view?: HTMLCanvasElement }).view) as HTMLCanvasElement;
@@ -152,9 +172,11 @@ export default function GalaxyMapCanvas({
 
       const nodesLayer = new Container();
       world.addChild(nodesLayer);
+      nodesLayerRef.current = nodesLayer;
 
       const labelLayer = new Container();
       world.addChild(labelLayer);
+      labelsLayerRef.current = labelLayer;
 
       const interactionTarget = app.stage;
       if ("eventMode" in interactionTarget) {
@@ -240,7 +262,32 @@ export default function GalaxyMapCanvas({
         );
       });
 
-      return () => {
+      // --- Pulsing glow (single ticker, cheap) ---
+      const pulseTick = () => {
+        const app = appRef.current;
+        if (!app) return;
+        const t = (app.ticker.lastTime ?? 0) / 1000;
+        const hoveredId = hoverRef.current?.id ?? null;
+
+        for (const p of pulseRef.current) {
+          // Hover中の星は pointerover/out の強調があるので、脈動は止める（競合防止）
+          if (hoveredId && p.nodeId === hoveredId) continue;
+
+          // ゆっくり揺れる。位相ずらしで全体が同期しないようにする。
+          const w1 = 0.6;
+          const w2 = 0.45;
+          const haloMul = 0.92 + 0.08 * Math.sin(t * w1 + p.phase);
+          const bloomMul = 0.94 + 0.06 * Math.sin(t * w2 + p.phase * 1.31);
+
+          p.halo.alpha = clamp(p.baseHaloAlpha * haloMul, 0, 1);
+          p.bloom.alpha = clamp(p.baseBloomAlpha * bloomMul, 0, 0.45);
+        }
+      };
+
+      app.ticker.add(pulseTick);
+
+       return () => {
+        app.ticker.remove(pulseTick);
         resizeObserver.disconnect();
       };
     };
@@ -257,6 +304,9 @@ export default function GalaxyMapCanvas({
       labelRef.current.clear();
       worldRef.current = null;
       edgesRef.current = null;
+      nodesLayerRef.current = null;
+      labelsLayerRef.current = null;
+      pulseRef.current = [];
     };
   }, []);
 
@@ -266,16 +316,15 @@ export default function GalaxyMapCanvas({
     const edgesLayer = edgesRef.current;
     if (!app || !world || !edgesLayer) return;
 
-    const nodesLayer = world.children.find((child) => child instanceof Container) as Container | undefined;
-    const labelsLayer = world.children.filter((child) => child instanceof Container)[1] as
-      | Container
-      | undefined;
+    const nodesLayer = nodesLayerRef.current ?? undefined;
+    const labelsLayer = labelsLayerRef.current ?? undefined;
     if (!nodesLayer || !labelsLayer) return;
 
     nodesLayer.removeChildren();
     labelsLayer.removeChildren();
     nodesRef.current.clear();
     labelRef.current.clear();
+    pulseRef.current = [];
 
     const labelStyle = new TextStyle({
       fill: "#dbeafe",
@@ -288,23 +337,57 @@ export default function GalaxyMapCanvas({
 
     nodes.forEach((node) => {
       const color = COLOR_MAP[node.color_key] || COLOR_MAP[node.node_type] || "#ffffff";
-      const fill = new Color(color).toNumber();
-      const glowColor = new Color(color).toNumber();
+      const phase = Math.random() * Math.PI * 2;
 
-      const star = new Graphics();
+      const star = new Container();
+
       if ("eventMode" in star) {
         (star as unknown as { eventMode: string }).eventMode = "static";
       } else {
         (star as unknown as { interactive: boolean }).interactive = true;
       }
-      star.cursor = "pointer";
-      star.beginFill(fill, 0.95);
-      star.drawCircle(0, 0, node.radius);
-      star.endFill();
-      const glowRadius = node.radius + 6 + node.glow_intensity * 6;
-      star.beginFill(glowColor, 0.35 + node.glow_intensity * 0.25);
-      star.drawCircle(0, 0, glowRadius);
-      star.endFill();
+      (star as any).cursor = "pointer"; // Containerにも効く
+
+      const baseColor = new Color(color).toNumber();
+
+      // radialテクスチャを使う
+      const tex = Assets.get("/radial_gradient.png");
+
+      const bloomAlpha = clamp(0.10 + node.glow_intensity * 0.10, 0.06, 0.30);
+      const haloAlpha = clamp(0.25 + node.glow_intensity * 0.25, 0.18, 0.85);
+      const coreAlpha = 0.92;
+
+      // 1) bloom（外側、薄い、ADD）
+      const bloom = new Sprite(tex);
+      bloom.anchor.set(0.5);
+      bloom.tint = baseColor;
+      bloom.blendMode = BLEND_MODES.ADD;
+      bloom.alpha = 0.10 + node.glow_intensity * 0.10;
+      const bloomSize = (node.radius * 2) * (4.0 + node.glow_intensity * 1.8);
+      bloom.width = bloomSize;
+      bloom.height = bloomSize;
+
+      // 2) halo（中間、ADD）
+      const halo = new Sprite(tex);
+      halo.anchor.set(0.5);
+      halo.tint = baseColor;
+      halo.blendMode = BLEND_MODES.ADD;
+      halo.alpha = 0.25 + node.glow_intensity * 0.25;
+      const haloSize = (node.radius * 2) * (2.2 + node.glow_intensity * 1.2);
+      halo.width = haloSize;
+      halo.height = haloSize;
+
+      // 3) core（中心、白寄り、Normal）
+      const core = new Sprite(tex);
+      core.anchor.set(0.5);
+      // コアは白っぽくした方が“眩しさ”になる（色はhaloに任せる）
+      core.tint = 0xffffff;
+      core.alpha = 0.9;
+      const coreSize = node.radius * 2;
+      core.width = coreSize;
+      core.height = coreSize;
+
+      star.addChild(bloom, halo, core);
 
       star.x = node.x;
       star.y = node.y;
@@ -312,6 +395,9 @@ export default function GalaxyMapCanvas({
 
       star.on("pointerover", () => {
         hoverRef.current = node;
+        halo.alpha = clamp(haloAlpha + 0.15, 0, 1);
+        bloom.alpha = clamp(bloomAlpha + 0.08, 0, 0.45);
+        core.alpha = clamp(coreAlpha + 0.04, 0, 1);
         star.scale.set(1.12);
         const screenPoint = world.toGlobal(star.position);
         const label = node.label || node.meta?.["title"]?.toString() || node.id;
@@ -330,7 +416,9 @@ export default function GalaxyMapCanvas({
 
       star.on("pointerout", () => {
         hoverRef.current = null;
-        star.scale.set(1);
+        halo.alpha = haloAlpha;
+        bloom.alpha = bloomAlpha;
+        core.alpha = coreAlpha;
         setTooltip(null);
         onNodeHover?.(null);
         if (edgeMode === "hover") {
@@ -344,6 +432,17 @@ export default function GalaxyMapCanvas({
 
       nodesLayer.addChild(star);
       nodesRef.current.set(node.id, star);
+
+      // Register for pulsing (single ticker uses this list)
+      // Phase is randomized per star to avoid synchronized flicker.
+      pulseRef.current.push({
+        nodeId: node.id,
+        halo,
+        bloom,
+        baseHaloAlpha: haloAlpha,
+        baseBloomAlpha: bloomAlpha,
+        phase: Math.random() * Math.PI * 2,
+      });
 
       if (node.label) {
         const labelText = new Text({ text: node.label, style: labelStyle });
@@ -403,7 +502,7 @@ function drawEdgesForNode(
   nodeId: string,
   links: GalaxyLink[],
   graphics: Graphics,
-  nodeGraphics: Map<string, Graphics>
+  nodeGraphics: Map<string, Container>
 ) {
   graphics.clear();
   for (const link of links) {
