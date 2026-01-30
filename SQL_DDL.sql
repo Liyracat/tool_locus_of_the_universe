@@ -300,11 +300,11 @@ CREATE TABLE IF NOT EXISTS seed_merge_candidates (
 );
 
 -- 検索用インデックス
-CREATE INDEX idx_seed_merge_candidates_status
+CREATE INDEX IF NOT EXISTS idx_seed_merge_candidates_status
     ON seed_merge_candidates(status);
 
-CREATE INDEX idx_seed_merge_candidates_seed_a
+CREATE INDEX IF NOT EXISTS idx_seed_merge_candidates_seed_a
     ON seed_merge_candidates(seed_a_id);
 
-CREATE INDEX idx_seed_merge_candidates_seed_b
+CREATE INDEX IF NOT EXISTS idx_seed_merge_candidates_seed_b
     ON seed_merge_candidates(seed_b_id);
