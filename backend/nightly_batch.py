@@ -28,18 +28,33 @@ MODEL_NAME = "paraphrase-multilingual:latest"
 
 
 def _ensure_numpy() -> None:
+    global np
     if np is None:
-        raise RuntimeError("numpy is required")
+        try:
+            import numpy as _np  # type: ignore
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("numpy is required") from exc
+        np = _np
 
 
 def _ensure_faiss() -> None:
+    global faiss
     if faiss is None:
-        raise RuntimeError("faiss is required")
+        try:
+            import faiss as _faiss  # type: ignore
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("faiss is required") from exc
+        faiss = _faiss
 
 
 def _ensure_umap() -> None:
+    global umap
     if umap is None:
-        raise RuntimeError("umap-learn is required")
+        try:
+            import umap as _umap  # type: ignore
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("umap-learn is required") from exc
+        umap = _umap
 
 
 def _decode_vector(blob: bytes, dims: int) -> "np.ndarray":

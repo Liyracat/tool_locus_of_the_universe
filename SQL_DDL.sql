@@ -230,28 +230,45 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_model
   ON embeddings (model_name);
 
 
--- =========================================
--- layouts (表示用座標: temp/globalなど)
--- =========================================
-CREATE TABLE IF NOT EXISTS layouts (
-  layout_id     TEXT PRIMARY KEY,                       -- UUID
-  layout_name   TEXT NOT NULL,                           -- 例: global_umap_v3 / temp_neighbor_avg
-  layout_kind   TEXT NOT NULL                            -- temp / global
-    CHECK (layout_kind IN ('temp','global')),
-  target_type   TEXT NOT NULL                            -- seed / cluster / utterance
-    CHECK (target_type IN ('utterance','seed','cluster')),
-  target_id     TEXT NOT NULL,
-  x             REAL NOT NULL,
-  y             REAL NOT NULL,
-  created_at    TEXT NOT NULL,
-  UNIQUE (layout_name, target_type, target_id)
+-- レイアウト（地図）定義
+CREATE TABLE layout_runs (
+  layout_id TEXT PRIMARY KEY,
+  algorithm TEXT NOT NULL,                  -- 'umap' など
+  dims      INTEGER NOT NULL,               -- 2 or 3
+  scope_type TEXT NOT NULL,                 -- 'global' or 'cluster'
+  scope_cluster_id TEXT,                    -- scope_type='cluster' のとき必須
+  params_json TEXT NOT NULL,                -- {"n_neighbors":..., "min_dist":...}
+  is_active INTEGER NOT NULL DEFAULT 1     -- 0/1
+    CHECK (is_active IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_layouts_kind_target
-  ON layouts (layout_kind, target_type);
+-- scopeの整合性（SQLiteのCHECKは弱いけど最低限）
+CREATE INDEX idx_layout_runs_scope
+  ON layout_runs(scope_type, scope_cluster_id);
 
-CREATE INDEX IF NOT EXISTS idx_layouts_target
-  ON layouts (target_type, target_id);
+-- 同一スコープ・同一パラメータの重複を防ぎたいなら（任意）
+-- params_jsonをそのままUNIQUEに使うのは揺れやすいので、hashを持たせるのが堅い
+ALTER TABLE layout_runs ADD COLUMN params_hash TEXT;
+CREATE UNIQUE INDEX ux_layout_runs_scope_params
+  ON layout_runs(algorithm, dims, scope_type, scope_cluster_id, params_hash);
+
+-- レイアウト上の各点
+CREATE TABLE layout_points (
+  layout_id TEXT NOT NULL,
+  target_type TEXT NOT NULL CHECK (target_type IN ('cluster','seed','utterance')),
+  target_id   TEXT NOT NULL,
+  x REAL NOT NULL,
+  y REAL NOT NULL,
+  is_active INTEGER NOT NULL DEFAULT 1    -- 0/1
+    CHECK (is_active IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (layout_id, target_type, target_id),
+  FOREIGN KEY (layout_id) REFERENCES layout_runs(layout_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_layout_points_target
+  ON layout_points(target_type, target_id);
 
 
 -- =========================================

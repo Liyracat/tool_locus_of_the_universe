@@ -122,6 +122,9 @@ f"{utterance['contents']}"
 　　　　・priority = 10
 　　　　・created_at = 現在日時
 　　　　・updated_at = 現在日時
+　　・utterancesをUPDATEする
+　　　　・did_asked_evaluation = 1
+　　　　・updated_at = 現在日時
 
 【did_asked_model】
 ・MODEL_NAME = "gpt-oss:20b"
@@ -151,6 +154,9 @@ f"{utterance['contents']}"
 　　　　・status = queued
 　　　　・priority = 10
 　　　　・created_at = 現在日時
+　　　　・updated_at = 現在日時
+　　・utterancesをUPDATEする
+　　　　・did_asked_model = 1
 　　　　・updated_at = 現在日時
 
 【did_asked_premise】
@@ -182,6 +188,9 @@ f"{utterance['contents']}"
 　　　　・priority = 10
 　　　　・created_at = 現在日時
 　　　　・updated_at = 現在日時
+　　・utterancesをUPDATEする
+　　　　・did_asked_premise = 1
+　　　　・updated_at = 現在日時
 
 【did_asked_conversion】
 ・MODEL_NAME = "gpt-oss:20b"
@@ -211,6 +220,9 @@ f"{utterance['contents']}"
 　　　　・status = queued
 　　　　・priority = 10
 　　　　・created_at = 現在日時
+　　　　・updated_at = 現在日時
+　　・utterancesをUPDATEする
+　　　　・did_asked_conversion = 1
 　　　　・updated_at = 現在日時
 
 【did_asked_question】
@@ -242,6 +254,9 @@ f"{utterance['contents']}"
 　　　　・priority = 10
 　　　　・created_at = 現在日時
 　　　　・updated_at = 現在日時
+　　・utterancesをUPDATEする
+　　　　・did_asked_question = 1
+　　　　・updated_at = 現在日時
 
 【did_asked_knowledge】
 ・MODEL_NAME = "gpt-oss:20b"
@@ -272,6 +287,9 @@ f"{utterance['contents']}"
 　　　　・priority = 10
 　　　　・created_at = 現在日時
 　　　　・updated_at = 現在日時
+　　・utterancesをUPDATEする
+　　　　・did_asked_knowledge = 1
+　　　　・updated_at = 現在日時
 
 【embedding】
 ・MODEL_NAME = "paraphrase-multilingual:latest"
@@ -287,17 +305,8 @@ f"{utterance['contents']}"
 　　　　・vector = L2正規化したresponse(正規化に失敗した場合はresponseの内容)
 　　　　・is_l2_normalized = 1(正規化に失敗した場合は0)
 　　　　・created_at = 現在時刻
-　　・embeddings内でvectorを用いて近傍を検索し、上位20個のutterance・seed・clusterに紐づいているlayouts.xとlayouts.yを抽出する。
-　　・layoutsにINSERTする。
-　　　　・layout_id = 生成UUID
-　　　　・layout_name = temp_neighbor_avg
-　　　　・layout_kind = temp
-　　　　・target_type = worker_jobs.target_table
-　　　　・target_id = worker_jobs.target_id
-　　　　・x = 近傍検索上位20個のデータのxの平均
-　　　　・y = 近傍検索上位20個のデータのyの平均
-　　　　・created_at = 現在時刻
-　　・embeddings内でvectorを用いて近傍を検索し、上位20個のutterance・seed・clusterのうち、clusterが存在した場合には上位2個に対してedgesをINSERTする。
+　　（以降はseed・clusterのみ実行）
+　　・embeddings内でvectorを用いて近傍を検索し、上位20個のseed・clusterのうち、clusterが存在した場合には上位2個に対してedgesをINSERTする。
 　　　　・edge_id = 生成UUID
 　　　　・src_type = worker_jobs.target_table
 　　　　・src_id = worker_jobs.target_id
@@ -308,7 +317,49 @@ f"{utterance['contents']}"
 　　　　・is_active = 1
 　　　　・created_at = 現在時刻
 　　　　・updated_at = 現在時刻
-　　・embeddings内でvectorを用いて近傍を検索し、上位10個のutterance・seed・clusterに対してedgesをINSERTする。
+　　・clusterにedgesを追加した場合、layout_pointsをINSERTする。
+　　　　・layout_id = layout_ruins.scope_cluster_id = 該当cluster_idに紐づいているlayout_id
+　　　　・target_type = worker_jobs.target_table
+　　　　・target_id = worker_jobs.target_id
+　　　　・x = layout_runsに紐づいているlayout_pointsのうち、近傍検索で上位10件のxの平均値
+　　　　・y = layout_runsに紐づいているlayout_pointsのうち、近傍検索で上位10件のyの平均値
+　　　　・is_active = 1
+　　　　・created_at = 現在時刻
+　　・clusterにedgesを追加したtarget_typeがseedの場合、utterance_seedで紐づいているutteranceすべてに対して、layout_pointsをINSERTする。
+　　　　・layout_id = layout_ruins.scope_cluster_id = 該当cluster_idに紐づいているlayout_id
+　　　　・target_type = utterance
+　　　　・target_id = 該当のutterance_id
+　　　　・x = layout_runsに紐づいているlayout_pointsのうち、近傍検索で上位10件のxの平均値
+　　　　・y = layout_runsに紐づいているlayout_pointsのうち、近傍検索で上位10件のyの平均値
+　　　　・is_active = 1
+　　　　・created_at = 現在時刻
+　　・clusterにedgesを追加したtarget_typeがseedの場合、utterance_seedで紐づいているutteranceすべてに対して、layout_runs.scope_type = globalに紐づいているlayout_printsが存在したら、layout_points.is_active = 0にUPDATEする。
+　　・clusterにedgesを追加しなかった場合、layout_runs.scope_type = globalのlayout_runsに紐づくlayout_pointsをINSERTする。
+　　　　・layout_runs.scope_type = globalのレコードがない場合、以下をINSERTする
+　　　　　　・layout_id = 生成UUID
+　　　　　　・algorithm = umap
+　　　　　　・dims = 2
+　　　　　　・scope_type = global
+　　　　　　・params_json = {"n_components":2, "n_neighbors":15, "min_dist":0.1, "random_state":42}
+　　　　　　・is_active = 1
+　　　　　　・created_at = 現在時刻
+　　　　・layout_pointsをINSERTする
+　　　　　　・layout_id = layout_runs.scope_type = globalのlayout_runsのlayout_id
+　　　　　　・target_type = worker_jobs.target_table
+　　　　　　・target_id = worker_jobs.target_id
+　　　　　　・x = layout_runsに紐づいているlayout_pointsのうち、近傍検索で上位10件のxの平均値
+　　　　　　・y = layout_runsに紐づいているlayout_pointsのうち、近傍検索で上位10件のyの平均値
+　　　　　　・is_active = 1
+　　　　　　・created_at = 現在時刻
+　　・clusterにedgesを追加せずtarget_typeがseedの場合、utterance_seedで紐づいているutteranceすべてに対して、layout_pointsをINSERTする。
+　　　　・layout_id = layout_runs.scope_type = globalのlayout_runsのlayout_id
+　　　　・target_type = utterance
+　　　　・target_id = 該当のutterance_id
+　　　　・x = layout_runsに紐づいているlayout_pointsのうち、近傍検索で上位10件のxの平均値
+　　　　・y = layout_runsに紐づいているlayout_pointsのうち、近傍検索で上位10件のyの平均値
+　　　　・is_active = 1
+　　　　・created_at = 現在時刻
+　　・embeddings内でvectorを用いて近傍を検索し、上位10個のseed・clusterに対してedgesをINSERTする。
 　　　　・edge_id = 生成UUID
 　　　　・src_type = worker_jobs.target_table
 　　　　・src_id = worker_jobs.target_id
@@ -344,16 +395,19 @@ f"{連結したテキスト}"
 　　　　　　・該当するseedに対して、密度関数(FAISSでkNNをとり(k=30)、その中央値を見る)を調整し2つ以上にグループを分裂させる（分裂後は1グループあたり20seed以上）
 　　　　　　・対象のclusterはclusters.is_archived = 1、updated_at = 現在時刻にUPDATEする。
 　　　　　　・対象のclusterに紐づくedgesについて(srcとdstのどちらも確認)、is_active = 0、updated_at = 現在時刻にUPDATEする。
+　　　　　　・対象のclusterに紐づくlayout_runsについて、is_active = 0にUPDATEする。
+　　　　　　・対象のclusterに紐づくlayout_ruinsに属していたすべてのlayout_pointsについて、is_active = 0にUPDATEする。
+　　　　　　・対象のclusterが紐づいていたlayout_pointsについて、is_active = 0にUPDATEする。
 　　　　　　・各グループに対して以下の処理を行う。
 　　　　　　　　・clustersをINSERTする
 　　　　　　　　　　・cluster_id = 生成UUID
 　　　　　　　　　　・cluster_level = cluster
 　　　　　　　　　　・is_archived = 0
-　　　　　　　　　　・avg_hypothetical = グループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
-　　　　　　　　　　・avg_confidence = グループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
-　　　　　　　　　　・avg_reinterpretation = グループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
-　　　　　　　　　　・avg_resistance = グループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
-　　　　　　　　　　・avg_direction = グループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
+　　　　　　　　　　・avg_hypothetical = 下位も含めてグループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
+　　　　　　　　　　・avg_confidence = 下位も含めてグループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
+　　　　　　　　　　・avg_reinterpretation = 下位も含めてグループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
+　　　　　　　　　　・avg_resistance = 下位も含めてグループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
+　　　　　　　　　　・avg_direction = 下位も含めてグループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
 　　　　　　　　　　・created_at = 現在時刻
 　　　　　　　　　　・updated_at = 現在時刻
 　　　　　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにINSERTする
@@ -362,22 +416,46 @@ f"{連結したテキスト}"
 　　　　　　　　　　・target_id = 生成したcluster_id
 　　　　　　　　　　・model_name = 大元のclusterに紐づいていたembeddings.model_name
 　　　　　　　　　　・dims = 大元のclusterに紐づいていたembeddings.dims
-　　　　　　　　　　・vector = 所属するseedのembeddings.vectorの平均
+　　　　　　　　　　・vector = 所属するseedのembeddings.vectorの平均＆L2正規化
 　　　　　　　　　　・is_l2_normalized = 1
 　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　・layoutsにINSERTする
+　　　　　　　　・layout_runsにINSERTする
 　　　　　　　　　　・layout_id = 生成UUID
-　　　　　　　　　　・layout_name = temp_0
-　　　　　　　　　　・layout_kind = temp
+　　　　　　　　　　・algorithm = umap
+　　　　　　　　　　・dims = 2
+　　　　　　　　　　・scope_type = cluster
+　　　　　　　　　　・scope_cluster_id = 生成したcluster_id
+　　　　　　　　　　・params_json = {"n_components":2, "n_neighbors":15, "min_dist":0.1, "random_state":42}
+　　　　　　　　　　・is_active = 1
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　・グループ内のcluster・seedについて、layout_pointsにINSERTする
+　　　　　　　　　　・layout_id = 生成したlayout_runs.layout_id
+　　　　　　　　　　・target_type = cluster / seed
+　　　　　　　　　　・target_id = 該当のcluster_id /seed_id
+　　　　　　　　　　・x = 0
+　　　　　　　　　　・y = 0
+　　　　　　　　　　・is_active = 1
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　・グループ内のseedに紐づいているutteranceについて、layout_pointsにINSERTする
+　　　　　　　　　　・layout_id = 生成したlayout_runs.layout_id
+　　　　　　　　　　・target_type = utterance
+　　　　　　　　　　・target_id = 該当のutterance_id
+　　　　　　　　　　・x = 0
+　　　　　　　　　　・y = 0
+　　　　　　　　　　・is_active = 1
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　・分割元が属していたlayout_runsすべてに対して、それぞれ紐づくlayout_printsをINSERTする
+　　　　　　　　　　・layout_id = 分割元が属していたlayout_runs_id
 　　　　　　　　　　・target_type = cluster
 　　　　　　　　　　・target_id = 生成したcluster_id
 　　　　　　　　　　・x = 0
 　　　　　　　　　　・y = 0
+　　　　　　　　　　・is_active = 1
 　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　・各seedに対してedgesをINSERTする。
+　　　　　　　　・各要素に対してedgesをINSERTする。
 　　　　　　　　　　・edge_id = 生成UUID
-　　　　　　　　　　・src_type = seed
-　　　　　　　　　　・src_id = 該当seed_id
+　　　　　　　　　　・src_type = 該当要素
+　　　　　　　　　　・src_id = 該当要素のid
 　　　　　　　　　　・dst_type = cluster
 　　　　　　　　　　・dst_id = 生成したcluster_id
 　　　　　　　　　　・edge_type = part_of
@@ -402,6 +480,9 @@ f"{連結したテキスト}"
 　　　　・存在する場合：全てのseedに紐づいているembeddings.is_l2_normalized = 1ならば、以下の処理を行う。それ以外の場合はスキップ。
 　　　　　　・対象のclusterはclusters.is_archived = 1、updated_at = 現在時刻にUPDATEする。
 　　　　　　・対象のclusterに紐づくedgesについて(srcとdstのどちらも確認)、is_active = 0、updated_at = 現在時刻にUPDATEする。
+　　　　　　・対象のclusterに紐づくlayout_runsについて、is_active = 0にUPDATEする。
+　　　　　　・対象のclusterに紐づくlayout_ruinsに属していたすべてのlayout_pointsについて、is_active = 0にUPDATEする。
+　　　　　　・対象のclusterが紐づいていたlayout_pointsについて、is_active = 0にUPDATEする。
 　　　　　　・近傍検索し、最も近いclusterを見つける。
 　　　　　　・もともとclusterに紐づいていたseedに対して、以下の処理を行う。
 　　　　　　　　・edgesをINSERTする。
@@ -415,13 +496,29 @@ f"{連結したテキスト}"
 　　　　　　　　　　・is_active = 1
 　　　　　　　　　　・created_at = 現在時刻
 　　　　　　　　　　・updated_at = 現在時刻
+　　　　　　　　・cluster・seedについて、layout_pointsにINSERTする
+　　　　　　　　　　・layout_id = 統合先のcluster_idが紐づくlayout_runs.layout_id
+　　　　　　　　　　・target_type = cluster / seed
+　　　　　　　　　　・target_id = 該当のcluster_id /seed_id
+　　　　　　　　　　・x = 0
+　　　　　　　　　　・y = 0
+　　　　　　　　　　・is_active = 1
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　・seedに紐づいているutteranceについて、layout_pointsにINSERTする
+　　　　　　　　　　・layout_id = 統合先のcluster_idが紐づくlayout_runs.layout_id
+　　　　　　　　　　・target_type = utterance
+　　　　　　　　　　・target_id = 該当のutterance_id
+　　　　　　　　　　・x = 0
+　　　　　　　　　　・y = 0
+　　　　　　　　　　・is_active = 1
+　　　　　　　　　　・created_at = 現在時刻
 　　　　　　・統合先のclusterに対して以下の処理を行う。
 　　　　　　　　・clustersをUPDATEする
-　　　　　　　　　　・avg_hypothetical = グループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
-　　　　　　　　　　・avg_confidence = グループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
-　　　　　　　　　　・avg_reinterpretation = グループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
-　　　　　　　　　　・avg_resistance = グループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
-　　　　　　　　　　・avg_direction = グループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
+　　　　　　　　　　・avg_hypothetical = 下位も含めてグループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
+　　　　　　　　　　・avg_confidence = 下位も含めてグループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
+　　　　　　　　　　・avg_reinterpretation = 下位も含めてグループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
+　　　　　　　　　　・avg_resistance = 下位も含めてグループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
+　　　　　　　　　　・avg_direction = 下位も含めてグループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
 　　　　　　　　　　・updated_at = 現在時刻
 　　　　　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにUPDATEする
 　　　　　　　　　　・vector = 所属するseedのembeddings.vectorの平均
@@ -437,16 +534,16 @@ f"{連結したテキスト}"
 　　　　　　　　　　・expires_at = 現在時刻
 
 ・clusterの作成
-　　・seed＋既存clusterを含めた近傍30件を対象にする。その中でseedが20個以上存在するかつ距離分布が中央に寄っているかつ近傍5件に既存clusterが存在しない場合、かつ該当seed全てに対して紐づいているembeddings.is_l2_normalized = 1ならばに、clusterを生成する。
+　　・seed＋既存clusterを含めた近傍30件を対象にする。その中でseedが20個以上存在するかつ距離分布が中央に寄っているかつ近傍5件に既存clusterが存在しない場合、またはclusterが20個以上存在するかつ距離分布が中央に寄っている場合、両者のどちらかを満たしかつ該当要素全てに対して紐づいているembeddings.is_l2_normalized = 1ならばに、clusterを生成する。
 　　　　・clustersをINSERTする
 　　　　　　・cluster_id = 生成UUID
 　　　　　　・cluster_level = cluster
 　　　　　　・is_archived = 0
-　　　　　　・avg_hypothetical = グループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
-　　　　　　・avg_confidence = グループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
-　　　　　　・avg_reinterpretation = グループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
-　　　　　　・avg_resistance = グループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
-　　　　　　・avg_direction = グループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
+　　　　　　・avg_hypothetical = 下位も含めてグループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
+　　　　　　・avg_confidence = 下位も含めてグループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
+　　　　　　・avg_reinterpretation = 下位も含めてグループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
+　　　　　　・avg_resistance = 下位も含めてグループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
+　　　　　　・avg_direction = 下位も含めてグループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
 　　　　　　・created_at = 現在時刻
 　　　　　　・updated_at = 現在時刻
 　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにINSERTする
@@ -455,22 +552,46 @@ f"{連結したテキスト}"
 　　　　　　・target_id = 生成したcluster_id
 　　　　　　・model_name = paraphrase-multilingual
 　　　　　　・dims = ベクトルの次元数（要素数）
-　　　　　　・vector = 所属するseedのembeddings.vectorの平均
+　　　　　　・vector = 所属するseedのembeddings.vectorの平均＆L2正規化
 　　　　　　・is_l2_normalized = 1
 　　　　　　・created_at = 現在時刻
-　　　　・layoutsにINSERTする
+　　　　・layout_runsにINSERTする
 　　　　　　・layout_id = 生成UUID
-　　　　　　・layout_name = temp_0
-　　　　　　・layout_kind = temp
+　　　　　　・algorithm = umap
+　　　　　　・dims = 2
+　　　　　　・scope_type = cluster
+　　　　　　・scope_cluster_id = 生成したcluster_id
+　　　　　　・params_json = {"n_components":2, "n_neighbors":15, "min_dist":0.1, "random_state":42}
+　　　　　　・is_active = 1
+　　　　　　・created_at = 現在時刻
+　　　　・対象のcluster・seedについて、layout_pointsにINSERTする
+　　　　　　・layout_id = 生成したlayout_runs.layout_id
+　　　　　　・target_type = cluster / seed
+　　　　　　・target_id = 該当のcluster_id /seed_id
+　　　　　　・x = 0
+　　　　　　・y = 0
+　　　　　　・is_active = 1
+　　　　　　・created_at = 現在時刻
+　　　　・対象のseedに紐づいているutteranceについて、layout_pointsにINSERTする
+　　　　　　・layout_id = 生成したlayout_runs.layout_id
+　　　　　　・target_type = utterance
+　　　　　　・target_id = 該当のutterance_id
+　　　　　　・x = 0
+　　　　　　・y = 0
+　　　　　　・is_active = 1
+　　　　　　・created_at = 現在時刻
+　　　　・近傍を取ったlayout_runsに対して、紐づくlayout_printsをINSERTする
+　　　　　　・layout_id = 近傍を取ったlayout_runs_id
 　　　　　　・target_type = cluster
 　　　　　　・target_id = 生成したcluster_id
 　　　　　　・x = 0
 　　　　　　・y = 0
+　　　　　　・is_active = 1
 　　　　　　・created_at = 現在時刻
-　　　　・各seedに対してedgesをINSERTする。
+　　　　・各要素に対してedgesをINSERTする。
 　　　　　　・edge_id = 生成UUID
-　　　　　　・src_type = seed
-　　　　　　・src_id = 該当seed_id
+　　　　　　・src_type = 該当要素
+　　　　　　・src_id = 該当要素のid
 　　　　　　・dst_type = cluster
 　　　　　　・dst_id = 生成したcluster_id
 　　　　　　・edge_type = part_of
@@ -515,4 +636,4 @@ edgesの再生成
 　　　　・updated_at = 現在時刻
 
 layoutsの再計算
-・UMAPをすべてのlayoutsに対して実施する。紐づいている要素のembeddings.venderを用いてx・yを算出する。
+・UMAPを全てのlayout_runsそれぞれに対して実施する。layout_runsに紐づいているlayout_printsの要素のembeddings.venderを用いてx・yを算出する。

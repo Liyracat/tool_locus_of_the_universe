@@ -114,13 +114,23 @@ def _split_seed_lines(text: str) -> list[str]:
 
 
 def _ensure_numpy() -> None:
+    global np
     if np is None:
-        raise RuntimeError("numpy is required")
+        try:
+            import numpy as _np  # type: ignore
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("numpy is required") from exc
+        np = _np
 
 
 def _ensure_faiss() -> None:
+    global faiss
     if faiss is None:
-        raise RuntimeError("faiss is required")
+        try:
+            import faiss as _faiss  # type: ignore
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("faiss is required") from exc
+        faiss = _faiss
 
 
 def _l2_normalize(vec: Sequence[float]) -> Tuple[bytes, int, int]:
