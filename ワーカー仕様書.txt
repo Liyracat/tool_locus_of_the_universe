@@ -1,0 +1,518 @@
+インポート後などに頻回して行うバッチ処理
+worker_jobsのpriority(昇順) > created_at(昇順)の順番で、job_typeによって異なる種類の処理を行っていく。
+別プロジェクトでOllamaを用いて処理を行うコードがあるので、参考に記載します。
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+
+def call_ollama(prompt: str) -> dict[str, Any]:
+    payload = {
+        "model": MODEL_NAME,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0,
+            "top_p": 0.8,
+            "repeat_penalty": 1.1,
+        },
+    }
+    req = urllib.request.Request(
+        OLLAMA_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    logger.info("Ollama request prompt: %s", prompt)
+    with urllib.request.urlopen(req, timeout=300000) as resp:
+        body = resp.read().decode("utf-8")
+        logger.info("Ollama response status=%s body=%s", resp.status, body)
+        return json.loads(body)
+
+
+【utterance_role】
+・utterance_roles一覧を取得し、uttelance_role_nameを「/」区切りで連結する = allowed_terms
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="あなたは分類器です。出力は2行のみ。\n"
+"1行目：許可単語一覧から1つを完全一致で出力。\n"
+"2行目：自信度を0.00〜1.00で出力。\n"
+"他の文章は禁止。\n\n"
+"許可単語一覧：\n"
+f"{allowed_terms}\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内で一番最初に出てきたutterance_role_nameに完全一致するutterance_role_idを、utterance.utterance_role_idに格納
+　　・response内の数値のうち、最小値をutterance.utterance_role_confidenceに格納。
+
+【hypothetical】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="あなたは測定器です。出力は1行のみ。\n"
+"1行目：仮説性(どのくらい未確定の状態で発話しているか)を0.00〜1.00で出力。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内の数値のうち、最小値をutterance.hypotheticalに格納。
+
+【confidence】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="あなたは測定器です。出力は1行のみ。\n"
+"1行目：確信度(どのくらい言い切って発話しているか)を0.00〜1.00で出力。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内の数値のうち、最小値をutterance.confidenceに格納。
+
+【reinterpretation】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="あなたは測定器です。出力は1行のみ。\n"
+"1行目：変化度(自分の視点・認識にどのくらい変化して発話しているか)を0.00〜1.00で出力。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内の数値のうち、最小値をutterance.reinterpretationに格納。
+
+【resistance】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="あなたは測定器です。出力は1行のみ。\n"
+"1行目：抵抗度(どのくらい拒否感・違和感を抱いて発話しているか)を0.00〜1.00で出力。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内の数値のうち、最小値をutterance.resistanceに格納。
+
+【direction】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="あなたは測定器です。出力は1行のみ。\n"
+"1行目：方向性(どのくらい未確定の状態で発話しているか)を-1.00〜1.00で出力。（過去をマイナス、未来をプラス）\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内の数値のうち、最小値をutterance.directionに格納。
+
+【did_asked_evaluation】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="以下のテキストから言い切られている見方・評価について、区切り線「---」を設けて列挙してください。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内を「---」で区切り、それらをseedsにINSERTする
+　　　　・seed_id = 生成UUID
+　　　　・seed_type = seed
+　　　　・body = 区切ったテキスト
+　　　　・created_from = utterance
+　　　　・review_status = auto
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+　　・utterance_seedsにINSERTする
+　　　　・utterance_id = 読み込ませたutteranceのutterance_id
+　　　　・seed_id = 生成したseed_id
+　　　　・relation_type = derived_from
+　　　　・created_at = 現在時刻
+　　・worker_jobsにINSERTする
+　　　　・job_id = 生成UUID
+　　　　・job_type = embedding
+　　　　・target_table = utterance
+　　　　・target_id = 該当utterance_id
+　　　　・status = queued
+　　　　・priority = 10
+　　　　・created_at = 現在日時
+　　　　・updated_at = 現在日時
+
+【did_asked_model】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="以下のテキストから事象・概念に対して定義している箇所を、区切り線「---」を設けて列挙してください。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内を「---」で区切り、それらをseedsにINSERTする
+　　　　・seed_id = 生成UUID
+　　　　・seed_type = seed
+　　　　・body = 区切ったテキスト
+　　　　・created_from = utterance
+　　　　・review_status = auto
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+　　・utterance_seedsにINSERTする
+　　　　・utterance_id = 読み込ませたutteranceのutterance_id
+　　　　・seed_id = 生成したseed_id
+　　　　・relation_type = derived_from
+　　　　・created_at = 現在時刻
+　　・worker_jobsにINSERTする
+　　　　・job_id = 生成UUID
+　　　　・job_type = embedding
+　　　　・target_table = utterance
+　　　　・target_id = 該当utterance_id
+　　　　・status = queued
+　　　　・priority = 10
+　　　　・created_at = 現在日時
+　　　　・updated_at = 現在日時
+
+【did_asked_premise】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="以下のテキストから暗黙の前提・思考の土台になっている箇所を、区切り線「---」を設けて列挙してください。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内を「---」で区切り、それらをseedsにINSERTする
+　　　　・seed_id = 生成UUID
+　　　　・seed_type = seed
+　　　　・body = 区切ったテキスト
+　　　　・created_from = utterance
+　　　　・review_status = auto
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+　　・utterance_seedsにINSERTする
+　　　　・utterance_id = 読み込ませたutteranceのutterance_id
+　　　　・seed_id = 生成したseed_id
+　　　　・relation_type = derived_from
+　　　　・created_at = 現在時刻
+　　・worker_jobsにINSERTする
+　　　　・job_id = 生成UUID
+　　　　・job_type = embedding
+　　　　・target_table = utterance
+　　　　・target_id = 該当utterance_id
+　　　　・status = queued
+　　　　・priority = 10
+　　　　・created_at = 現在日時
+　　　　・updated_at = 現在日時
+
+【did_asked_conversion】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="以下のテキストから発話者が思考として引っかかった箇所・視点に変化が起きた箇所を、区切り線「---」を設けて列挙してください。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内を「---」で区切り、それらをseedsにINSERTする
+　　　　・seed_id = 生成UUID
+　　　　・seed_type = seed
+　　　　・body = 区切ったテキスト
+　　　　・created_from = utterance
+　　　　・review_status = auto
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+　　・utterance_seedsにINSERTする
+　　　　・utterance_id = 読み込ませたutteranceのutterance_id
+　　　　・seed_id = 生成したseed_id
+　　　　・relation_type = derived_from
+　　　　・created_at = 現在時刻
+　　・worker_jobsにINSERTする
+　　　　・job_id = 生成UUID
+　　　　・job_type = embedding
+　　　　・target_table = utterance
+　　　　・target_id = 該当utterance_id
+　　　　・status = queued
+　　　　・priority = 10
+　　　　・created_at = 現在日時
+　　　　・updated_at = 現在日時
+
+【did_asked_question】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="以下のテキストから答えがでていない疑問・まとまらない主張をしている箇所を、区切り線「---」を設けて列挙してください。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内を「---」で区切り、それらをseedsにINSERTする
+　　　　・seed_id = 生成UUID
+　　　　・seed_type = seed
+　　　　・body = 区切ったテキスト
+　　　　・created_from = utterance
+　　　　・review_status = auto
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+　　・utterance_seedsにINSERTする
+　　　　・utterance_id = 読み込ませたutteranceのutterance_id
+　　　　・seed_id = 生成したseed_id
+　　　　・relation_type = derived_from
+　　　　・created_at = 現在時刻
+　　・worker_jobsにINSERTする
+　　　　・job_id = 生成UUID
+　　　　・job_type = embedding
+　　　　・target_table = utterance
+　　　　・target_id = 該当utterance_id
+　　　　・status = queued
+　　　　・priority = 10
+　　　　・created_at = 現在日時
+　　　　・updated_at = 現在日時
+
+【did_asked_knowledge】
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="以下のテキストから知識と呼べる箇所を、区切り線「---」を設けて列挙してください。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{utterance['contents']}"
+・response受け取り後
+　　・response内を「---」で区切り、それらをseedsにINSERTする
+　　　　・seed_id = 生成UUID
+　　　　・seed_type = seed
+　　　　・body = 区切ったテキスト
+　　　　・created_from = utterance
+　　　　・review_status = auto
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+　　・utterance_seedsにINSERTする
+　　　　・utterance_id = 読み込ませたutteranceのutterance_id
+　　　　・seed_id = 生成したseed_id
+　　　　・relation_type = derived_from
+　　　　・created_at = 現在時刻
+　　・worker_jobsにINSERTする
+　　　　・job_id = 生成UUID
+　　　　・job_type = embedding
+　　　　・target_table = utterance
+　　　　・target_id = 該当utterance_id
+　　　　・status = queued
+　　　　・priority = 10
+　　　　・created_at = 現在日時
+　　　　・updated_at = 現在日時
+
+【embedding】
+・MODEL_NAME = "paraphrase-multilingual:latest"
+・prompt = f"{worker_jobs.target_table['contents']}"
+・response受け取り後
+　　・responseの内容をL2正規化する
+　　・embeddingsにINSERTする
+　　　　・embedding_id = 生成UUID
+　　　　・target_type = worker_jobs.target_table
+　　　　・target_id = worker_jobs.target_id
+　　　　・model_name = paraphrase-multilingual
+　　　　・dims = ベクトルの次元数（要素数）
+　　　　・vector = L2正規化したresponse(正規化に失敗した場合はresponseの内容)
+　　　　・is_l2_normalized = 1(正規化に失敗した場合は0)
+　　　　・created_at = 現在時刻
+　　・embeddings内でvectorを用いて近傍を検索し、上位20個のutterance・seed・clusterに紐づいているlayouts.xとlayouts.yを抽出する。
+　　・layoutsにINSERTする。
+　　　　・layout_id = 生成UUID
+　　　　・layout_name = temp_neighbor_avg
+　　　　・layout_kind = temp
+　　　　・target_type = worker_jobs.target_table
+　　　　・target_id = worker_jobs.target_id
+　　　　・x = 近傍検索上位20個のデータのxの平均
+　　　　・y = 近傍検索上位20個のデータのyの平均
+　　　　・created_at = 現在時刻
+　　・embeddings内でvectorを用いて近傍を検索し、上位20個のutterance・seed・clusterのうち、clusterが存在した場合には上位2個に対してedgesをINSERTする。
+　　　　・edge_id = 生成UUID
+　　　　・src_type = worker_jobs.target_table
+　　　　・src_id = worker_jobs.target_id
+　　　　・dst_type = cluster
+　　　　・dst_id = 該当cluster_id
+　　　　・edge_type = part_of
+　　　　・weight = 該当clusterとworker_jobsで指定した要素の類似度
+　　　　・is_active = 1
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+　　・embeddings内でvectorを用いて近傍を検索し、上位10個のutterance・seed・clusterに対してedgesをINSERTする。
+　　　　・edge_id = 生成UUID
+　　　　・src_type = worker_jobs.target_table
+　　　　・src_id = worker_jobs.target_id
+　　　　・dst_type = 該当要素名(utterance / seed / cluster)
+　　　　・dst_id = 該当要素id(utterance_id / seed_id / cluster_id)
+　　　　・edge_type = near
+　　　　・weight = 該当clusterとworker_jobsで指定した要素の類似度
+　　　　・is_active = 1
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+
+【cluster_body】
+・edgesのうち、dst_type = cluster、dst_id = worker_jobs.target_id、edge_type = part_ofに該当するseedのcontensを改行区切りで連結する。
+・MODEL_NAME = "gpt-oss:20b"
+・prompt ="以下のテキストから概要・まとめを出力してください。\n"
+"他の文章は禁止。\n\n"
+"contents：\n"
+f"{連結したテキスト}"
+・response受け取り後
+　　・clusters.cluster_id = worker_jobs.target_idにUPDATEする
+　　　　・cluster_overview = 受け取ったresponse
+　　　　・updated_at = 現在時刻
+
+---
+
+夜間などに行う重たいバッチ処理
+・全seedの近傍距離の平均をall_seed_info.avg_seed_distanceとして、近傍距離の中央値をall_seed_info.median_seed_distanceとしてINSERTorUPDATEする。
+
+・clusterの分割
+　　・edges.dst_type = cluster、edges.edge_type = part_ofで検索したとき100件以上存在するedges.dst_idを探す。
+　　　　・存在しない場合：スキップ
+　　　　・存在する場合：全てのseedに紐づいているembeddings.is_l2_normalized = 1ならば、以下の処理を行う。それ以外の場合はスキップ。
+　　　　　　・該当するseedに対して、密度関数(FAISSでkNNをとり(k=30)、その中央値を見る)を調整し2つ以上にグループを分裂させる（分裂後は1グループあたり20seed以上）
+　　　　　　・対象のclusterはclusters.is_archived = 1、updated_at = 現在時刻にUPDATEする。
+　　　　　　・対象のclusterに紐づくedgesについて(srcとdstのどちらも確認)、is_active = 0、updated_at = 現在時刻にUPDATEする。
+　　　　　　・各グループに対して以下の処理を行う。
+　　　　　　　　・clustersをINSERTする
+　　　　　　　　　　・cluster_id = 生成UUID
+　　　　　　　　　　・cluster_level = cluster
+　　　　　　　　　　・is_archived = 0
+　　　　　　　　　　・avg_hypothetical = グループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
+　　　　　　　　　　・avg_confidence = グループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
+　　　　　　　　　　・avg_reinterpretation = グループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
+　　　　　　　　　　・avg_resistance = グループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
+　　　　　　　　　　・avg_direction = グループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　　　・updated_at = 現在時刻
+　　　　　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにINSERTする
+　　　　　　　　　　・embedding_id = 生成UUID
+　　　　　　　　　　・target_type = cluster
+　　　　　　　　　　・target_id = 生成したcluster_id
+　　　　　　　　　　・model_name = 大元のclusterに紐づいていたembeddings.model_name
+　　　　　　　　　　・dims = 大元のclusterに紐づいていたembeddings.dims
+　　　　　　　　　　・vector = 所属するseedのembeddings.vectorの平均
+　　　　　　　　　　・is_l2_normalized = 1
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　・layoutsにINSERTする
+　　　　　　　　　　・layout_id = 生成UUID
+　　　　　　　　　　・layout_name = temp_0
+　　　　　　　　　　・layout_kind = temp
+　　　　　　　　　　・target_type = cluster
+　　　　　　　　　　・target_id = 生成したcluster_id
+　　　　　　　　　　・x = 0
+　　　　　　　　　　・y = 0
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　・各seedに対してedgesをINSERTする。
+　　　　　　　　　　・edge_id = 生成UUID
+　　　　　　　　　　・src_type = seed
+　　　　　　　　　　・src_id = 該当seed_id
+　　　　　　　　　　・dst_type = cluster
+　　　　　　　　　　・dst_id = 生成したcluster_id
+　　　　　　　　　　・edge_type = part_of
+　　　　　　　　　　・weight = 二つの要素の類似度
+　　　　　　　　　　・is_active = 1
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　　　・updated_at = 現在時刻
+　　　　　　　　・worker_jobsにINSERTする。
+　　　　　　　　　　・job_id = 生成UUID
+　　　　　　　　　　・job_type = cluster_body
+　　　　　　　　　　・target_table = clusters
+　　　　　　　　　　・target_id = 生成したcluster_id
+　　　　　　　　　　・status = queued
+　　　　　　　　　　・priority = 5
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　　　・updated_at = 現在時刻
+　　　　　　　　　　・expires_at = 現在時刻
+
+・clusterの統合
+　　・edges.dst_type = cluster、edges.edge_type = part_ofで検索したとき10件未満存在するedges.dst_idを探す。
+　　　　・存在しない場合：スキップ
+　　　　・存在する場合：全てのseedに紐づいているembeddings.is_l2_normalized = 1ならば、以下の処理を行う。それ以外の場合はスキップ。
+　　　　　　・対象のclusterはclusters.is_archived = 1、updated_at = 現在時刻にUPDATEする。
+　　　　　　・対象のclusterに紐づくedgesについて(srcとdstのどちらも確認)、is_active = 0、updated_at = 現在時刻にUPDATEする。
+　　　　　　・近傍検索し、最も近いclusterを見つける。
+　　　　　　・もともとclusterに紐づいていたseedに対して、以下の処理を行う。
+　　　　　　　　・edgesをINSERTする。
+　　　　　　　　　　・edge_id = 生成UUID
+　　　　　　　　　　・src_type = seed
+　　　　　　　　　　・src_id = 該当seed_id
+　　　　　　　　　　・dst_type = cluster
+　　　　　　　　　　・dst_id = 統合先のcluster_id
+　　　　　　　　　　・edge_type = part_of
+　　　　　　　　　　・weight = 二つの要素の類似度
+　　　　　　　　　　・is_active = 1
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　　　・updated_at = 現在時刻
+　　　　　　・統合先のclusterに対して以下の処理を行う。
+　　　　　　　　・clustersをUPDATEする
+　　　　　　　　　　・avg_hypothetical = グループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
+　　　　　　　　　　・avg_confidence = グループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
+　　　　　　　　　　・avg_reinterpretation = グループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
+　　　　　　　　　　・avg_resistance = グループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
+　　　　　　　　　　・avg_direction = グループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
+　　　　　　　　　　・updated_at = 現在時刻
+　　　　　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにUPDATEする
+　　　　　　　　　　・vector = 所属するseedのembeddings.vectorの平均
+　　　　　　　　・worker_jobsにINSERTする。
+　　　　　　　　　　・job_id = 生成UUID
+　　　　　　　　　　・job_type = cluster_body
+　　　　　　　　　　・target_table = clusters
+　　　　　　　　　　・target_id = 統合先cluster_id
+　　　　　　　　　　・status = queued
+　　　　　　　　　　・priority = 5
+　　　　　　　　　　・created_at = 現在時刻
+　　　　　　　　　　・updated_at = 現在時刻
+　　　　　　　　　　・expires_at = 現在時刻
+
+・clusterの作成
+　　・seed＋既存clusterを含めた近傍30件を対象にする。その中でseedが20個以上存在するかつ距離分布が中央に寄っているかつ近傍5件に既存clusterが存在しない場合、かつ該当seed全てに対して紐づいているembeddings.is_l2_normalized = 1ならばに、clusterを生成する。
+　　　　・clustersをINSERTする
+　　　　　　・cluster_id = 生成UUID
+　　　　　　・cluster_level = cluster
+　　　　　　・is_archived = 0
+　　　　　　・avg_hypothetical = グループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
+　　　　　　・avg_confidence = グループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
+　　　　　　・avg_reinterpretation = グループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
+　　　　　　・avg_resistance = グループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
+　　　　　　・avg_direction = グループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
+　　　　　　・created_at = 現在時刻
+　　　　　　・updated_at = 現在時刻
+　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにINSERTする
+　　　　　　・embedding_id = 生成UUID
+　　　　　　・target_type = cluster
+　　　　　　・target_id = 生成したcluster_id
+　　　　　　・model_name = paraphrase-multilingual
+　　　　　　・dims = ベクトルの次元数（要素数）
+　　　　　　・vector = 所属するseedのembeddings.vectorの平均
+　　　　　　・is_l2_normalized = 1
+　　　　　　・created_at = 現在時刻
+　　　　・layoutsにINSERTする
+　　　　　　・layout_id = 生成UUID
+　　　　　　・layout_name = temp_0
+　　　　　　・layout_kind = temp
+　　　　　　・target_type = cluster
+　　　　　　・target_id = 生成したcluster_id
+　　　　　　・x = 0
+　　　　　　・y = 0
+　　　　　　・created_at = 現在時刻
+　　　　・各seedに対してedgesをINSERTする。
+　　　　　　・edge_id = 生成UUID
+　　　　　　・src_type = seed
+　　　　　　・src_id = 該当seed_id
+　　　　　　・dst_type = cluster
+　　　　　　・dst_id = 生成したcluster_id
+　　　　　　・edge_type = part_of
+　　　　　　・weight = 二つの要素の類似度
+　　　　　　・is_active = 1
+　　　　　　・created_at = 現在時刻
+　　　　　　・updated_at = 現在時刻
+　　　　・worker_jobsにINSERTする。
+　　　　　　・job_id = 生成UUID
+　　　　　　・job_type = cluster_body
+　　　　　　・target_table = clusters
+　　　　　　・target_id = 生成したcluster_id
+　　　　　　・status = queued
+　　　　　　・priority = 5
+　　　　　　・created_at = 現在時刻
+　　　　　　・updated_at = 現在時刻
+　　　　　　・expires_at = 現在時刻
+
+edgesの再生成
+・各seedに対して以下の処理を行う。
+　　・embeddings内でvectorを用いて近傍を検索し、上位20個のutterance・seed・clusterのうち、clusterが存在した場合には上位2個に対してedgesをINSERTする。既に存在する場合には何もしない。不要となったedgesが存在する場合には、is_active = 0、updated_at = 現在時刻で更新する。
+　　　　・edge_id = 生成UUID
+　　　　・src_type = worker_jobs.target_table
+　　　　・src_id = worker_jobs.target_id
+　　　　・dst_type = cluster
+　　　　・dst_id = 該当cluster_id
+　　　　・edge_type = part_of
+　　　　・weight = 該当clusterとworker_jobsで指定した要素の類似度
+　　　　・is_active = 1
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+　　・embeddings内でvectorを用いて近傍を検索し、上位10個のutterance・seed・clusterに対してedgesをINSERTする。既に存在する場合には何もしない。不要となったedgesが存在する場合には、is_active = 0、updated_at = 現在時刻で更新する。
+　　　　・edge_id = 生成UUID
+　　　　・src_type = worker_jobs.target_table
+　　　　・src_id = worker_jobs.target_id
+　　　　・dst_type = 該当要素名(utterance / seed / cluster)
+　　　　・dst_id = 該当要素id(utterance_id / seed_id / cluster_id)
+　　　　・edge_type = near
+　　　　・weight = 該当clusterとworker_jobsで指定した要素の類似度
+　　　　・is_active = 1
+　　　　・created_at = 現在時刻
+　　　　・updated_at = 現在時刻
+
+layoutsの再計算
+・UMAPをすべてのlayoutsに対して実施する。紐づいている要素のembeddings.venderを用いてx・yを算出する。

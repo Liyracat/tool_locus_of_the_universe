@@ -57,6 +57,18 @@ CREATE TABLE IF NOT EXISTS utterance (
     CHECK (resistance >= 0.0 AND resistance <= 1.0),
   direction                 REAL                         -- -1..1
     CHECK (direction >= -1.0 AND direction <= 1.0),
+  did_asked_evaluation      INTEGER NOT NULL DEFAULT 0   -- 0/1
+    CHECK (did_asked_evaluation IN (0,1)),
+  did_asked_model           INTEGER NOT NULL DEFAULT 0   -- 0/1
+    CHECK (did_asked_model IN (0,1)),
+  did_asked_premise         INTEGER NOT NULL DEFAULT 0   -- 0/1
+    CHECK (did_asked_premise IN (0,1)),
+  did_asked_conversion      INTEGER NOT NULL DEFAULT 0   -- 0/1
+    CHECK (did_asked_conversion IN (0,1)),
+  did_asked_question        INTEGER NOT NULL DEFAULT 0   -- 0/1
+    CHECK (did_asked_question IN (0,1)),
+  did_asked_knowledge       INTEGER NOT NULL DEFAULT 0   -- 0/1
+    CHECK (did_asked_knowledge IN (0,1)),
   created_at                TEXT NOT NULL,
   updated_at                TEXT NOT NULL,
   FOREIGN KEY (speaker_id) REFERENCES speakers(speaker_id) ON UPDATE CASCADE,
@@ -226,8 +238,8 @@ CREATE TABLE IF NOT EXISTS layouts (
   layout_name   TEXT NOT NULL,                           -- 例: global_umap_v3 / temp_neighbor_avg
   layout_kind   TEXT NOT NULL                            -- temp / global
     CHECK (layout_kind IN ('temp','global')),
-  target_type   TEXT NOT NULL                            -- seed / cluster
-    CHECK (target_type IN ('seed','cluster')),
+  target_type   TEXT NOT NULL                            -- seed / cluster / utterance
+    CHECK (target_type IN ('utterance','seed','cluster')),
   target_id     TEXT NOT NULL,
   x             REAL NOT NULL,
   y             REAL NOT NULL,
@@ -308,3 +320,12 @@ CREATE INDEX IF NOT EXISTS idx_seed_merge_candidates_seed_a
 
 CREATE INDEX IF NOT EXISTS idx_seed_merge_candidates_seed_b
     ON seed_merge_candidates(seed_b_id);
+
+-- =========================================
+-- all_seed_info
+-- =========================================
+
+CREATE TABLE IF NOT EXISTS all_seed_info (
+    avg_seed_distance REAL,                -- 近傍距離の平均
+    median_seed_distance REAL              -- 近傍距離の中央値
+);

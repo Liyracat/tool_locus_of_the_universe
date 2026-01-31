@@ -280,3 +280,31 @@ PixiJS（Canvas/WebGL）。最初は2Dのみ。
 - GalaxyMapCanvas コンポーネント（PixiJS初期化/破棄）
 - データ更新（nodes/edges差し替え）時に再描画
 - Hover/Clickイベントを外に通知するコールバック
+
+---
+
+インポート処理後、以下の対応を行う。
+・worker_jobsに対してINSERT操作をjob_type違いで13回(または8回)行う。
+　　・共通
+　　　　・job_id = 生成UUID
+　　　　・target_table = utterance
+　　　　・target_id = 該当utterance_id
+　　　　・status = queued
+　　　　・priority = 10
+　　　　・created_at = 現在日時
+　　　　・updated_at = 現在日時
+　　・job_type
+　　　　・utterance_role
+　　　　・hypothetical　(utterance.speaker_idに紐づくspeakers.canonical_role = selfの場合にのみ追加)
+　　　　・confidence　(utterance.speaker_idに紐づくspeakers.canonical_role = selfの場合にのみ追加)
+　　　　・reinterpretation　(utterance.speaker_idに紐づくspeakers.canonical_role = selfの場合にのみ追加)
+　　　　・resistance　(utterance.speaker_idに紐づくspeakers.canonical_role = selfの場合にのみ追加)
+　　　　・direction　(utterance.speaker_idに紐づくspeakers.canonical_role = selfの場合にのみ追加)
+　　　　・did_asked_evaluation
+　　　　・did_asked_model
+　　　　・did_asked_premise
+　　　　・did_asked_conversion
+　　　　・did_asked_question
+　　　　・did_asked_knowledge
+　　　　・embedding
+
