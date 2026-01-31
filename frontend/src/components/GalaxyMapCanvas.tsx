@@ -298,7 +298,9 @@ export default function GalaxyMapCanvas({
       app.ticker.add(pulseTick);
 
       return () => {
-        app.ticker.remove(pulseTick);
+        if (app?.ticker) {
+          app.ticker.remove(pulseTick);
+        }
         resizeObserver.disconnect();
       };
     };
@@ -499,7 +501,9 @@ export default function GalaxyMapCanvas({
     app.ticker.add(cull);
 
     return () => {
-      app.ticker.remove(cull);
+      if (app?.ticker) {
+        app.ticker.remove(cull);
+      }
     };
   }, [pixiReady, nodes, links, edgeMode, topN, onNodeHover, onNodeClick]);
 
