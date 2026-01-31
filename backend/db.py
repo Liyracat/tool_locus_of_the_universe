@@ -27,3 +27,20 @@ def init_db() -> None:
                 conn.execute("ALTER TABLE all_seed_info ADD COLUMN created_at TEXT")
             if "updated_at" not in col_names:
                 conn.execute("ALTER TABLE all_seed_info ADD COLUMN updated_at TEXT")
+
+        utterance_cols = conn.execute("PRAGMA table_info(utterance)").fetchall()
+        if utterance_cols:
+            utterance_names = {row["name"] for row in utterance_cols}
+            missing = []
+            for col in (
+                "did_asked_evaluation",
+                "did_asked_model",
+                "did_asked_premise",
+                "did_asked_conversion",
+                "did_asked_question",
+                "did_asked_knowledge",
+            ):
+                if col not in utterance_names:
+                    missing.append(col)
+            for col in missing:
+                conn.execute(f"ALTER TABLE utterance ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
