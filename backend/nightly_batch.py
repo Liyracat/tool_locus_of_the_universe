@@ -472,14 +472,16 @@ def _create_cluster_from_seeds(seed_ids: list[str], embed_map: dict[str, "np.nda
         vectors = np.vstack([embed_map[sid] for sid in seed_ids]).astype(np.float32)
         mean_vec = vectors.mean(axis=0)
         norm = float(np.linalg.norm(mean_vec))
+        is_normalized = 0
         if norm > 0:
             mean_vec = mean_vec / norm
+            is_normalized = 1
         conn.execute(
             """
             INSERT INTO embeddings (
               embedding_id, target_type, target_id, model_name, dims, vector, is_l2_normalized, created_at
             ) VALUES (
-              :embedding_id, 'cluster', :target_id, :model_name, :dims, :vector, 1, datetime('now')
+              :embedding_id, 'cluster', :target_id, :model_name, :dims, :vector, :is_l2_normalized, datetime('now')
             )
             """,
             {
@@ -488,6 +490,7 @@ def _create_cluster_from_seeds(seed_ids: list[str], embed_map: dict[str, "np.nda
                 "model_name": MODEL_NAME,
                 "dims": mean_vec.size,
                 "vector": mean_vec.astype(np.float32).tobytes(),
+                "is_l2_normalized": is_normalized,
             },
         )
 
@@ -588,15 +591,17 @@ def _update_cluster_embedding(cluster_id: str, embed_map: dict[str, "np.ndarray"
         return
     mean_vec = vectors.mean(axis=0)
     norm = float(np.linalg.norm(mean_vec))
+    is_normalized = 0
     if norm > 0:
         mean_vec = mean_vec / norm
+        is_normalized = 1
     with get_conn() as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO embeddings (
               embedding_id, target_type, target_id, model_name, dims, vector, is_l2_normalized, created_at
             ) VALUES (
-              :embedding_id, 'cluster', :target_id, :model_name, :dims, :vector, 1, datetime('now')
+              :embedding_id, 'cluster', :target_id, :model_name, :dims, :vector, :is_l2_normalized, datetime('now')
             )
             """,
             {
@@ -605,6 +610,7 @@ def _update_cluster_embedding(cluster_id: str, embed_map: dict[str, "np.ndarray"
                 "model_name": MODEL_NAME,
                 "dims": mean_vec.size,
                 "vector": mean_vec.astype(np.float32).tobytes(),
+                "is_l2_normalized": is_normalized,
             },
         )
 
