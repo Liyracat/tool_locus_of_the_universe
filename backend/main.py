@@ -330,22 +330,37 @@ def get_map(
     limit_nodes: int | None = None,
     include_orphans: bool = False,
 ) -> dict:
-    layout_kind = "global" if view == "global" else "temp"
     nodes: List[dict] = []
     links: List[dict] = []
     match: dict[str, dict] = {}
 
     with get_conn() as conn:
-        if "seed" in filter_types:
+        layout_row = conn.execute(
+            """
+            SELECT layout_id
+            FROM layout_runs
+            WHERE is_active = 1
+              AND scope_type = :scope_type
+              AND (:cluster_id IS NULL OR scope_cluster_id = :cluster_id)
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"scope_type": view, "cluster_id": cluster_id},
+        ).fetchone()
+        layout_id = layout_row["layout_id"] if layout_row else None
+
+        if layout_id and "seed" in filter_types:
             seed_rows = conn.execute(
                 """
-                SELECT l.target_id AS seed_id, l.x, l.y,
+                SELECT lp.target_id AS seed_id, lp.x, lp.y,
                        s.title, s.body, s.review_status
-                FROM layouts l
-                JOIN seeds s ON s.seed_id = l.target_id
-                WHERE l.layout_kind = :layout_kind AND l.target_type = 'seed'
+                FROM layout_points lp
+                JOIN seeds s ON s.seed_id = lp.target_id
+                WHERE lp.layout_id = :layout_id
+                  AND lp.target_type = 'seed'
+                  AND lp.is_active = 1
                 """,
-                {"layout_kind": layout_kind},
+                {"layout_id": layout_id},
             ).fetchall()
             for row in seed_rows:
                 nodes.append(
@@ -364,16 +379,18 @@ def get_map(
                     }
                 )
 
-        if "cluster" in filter_types:
+        if layout_id and "cluster" in filter_types:
             cluster_rows = conn.execute(
                 """
-                SELECT l.target_id AS cluster_id, l.x, l.y,
+                SELECT lp.target_id AS cluster_id, lp.x, lp.y,
                        c.cluster_name, c.cluster_overview, c.cluster_level
-                FROM layouts l
-                JOIN clusters c ON c.cluster_id = l.target_id
-                WHERE l.layout_kind = :layout_kind AND l.target_type = 'cluster'
+                FROM layout_points lp
+                JOIN clusters c ON c.cluster_id = lp.target_id
+                WHERE lp.layout_id = :layout_id
+                  AND lp.target_type = 'cluster'
+                  AND lp.is_active = 1
                 """,
-                {"layout_kind": layout_kind},
+                {"layout_id": layout_id},
             ).fetchall()
             for row in cluster_rows:
                 nodes.append(
@@ -389,6 +406,34 @@ def get_map(
                         "label": row["cluster_name"],
                         "preview": row["cluster_overview"][:60] if row["cluster_overview"] else None,
                         "meta": {"cluster_level": row["cluster_level"]},
+                    }
+                )
+
+        if layout_id and "utterance" in filter_types:
+            utterance_rows = conn.execute(
+                """
+                SELECT lp.target_id AS utterance_id, lp.x, lp.y,
+                       u.contents
+                FROM layout_points lp
+                JOIN utterance u ON u.utterance_id = lp.target_id
+                WHERE lp.layout_id = :layout_id
+                  AND lp.target_type = 'utterance'
+                  AND lp.is_active = 1
+                """,
+                {"layout_id": layout_id},
+            ).fetchall()
+            for row in utterance_rows:
+                nodes.append(
+                    {
+                        "id": row["utterance_id"],
+                        "node_type": "utterance",
+                        "x": row["x"],
+                        "y": row["y"],
+                        "radius": 4,
+                        "color_key": "utterance",
+                        "glow_intensity": 0.3,
+                        "title": row["contents"][:24] if row["contents"] else None,
+                        "label": None,
                     }
                 )
 

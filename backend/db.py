@@ -44,3 +44,21 @@ def init_db() -> None:
                     missing.append(col)
             for col in missing:
                 conn.execute(f"ALTER TABLE utterance ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+
+        layout_runs_cols = conn.execute("PRAGMA table_info(layout_runs)").fetchall()
+        if layout_runs_cols:
+            layout_runs_names = {row["name"] for row in layout_runs_cols}
+            if "is_active" not in layout_runs_names:
+                conn.execute("ALTER TABLE layout_runs ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+            if "params_json" not in layout_runs_names:
+                conn.execute("ALTER TABLE layout_runs ADD COLUMN params_json TEXT")
+            if "created_at" not in layout_runs_names:
+                conn.execute("ALTER TABLE layout_runs ADD COLUMN created_at TEXT")
+
+        layout_points_cols = conn.execute("PRAGMA table_info(layout_points)").fetchall()
+        if layout_points_cols:
+            layout_points_names = {row["name"] for row in layout_points_cols}
+            if "is_active" not in layout_points_names:
+                conn.execute("ALTER TABLE layout_points ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+            if "created_at" not in layout_points_names:
+                conn.execute("ALTER TABLE layout_points ADD COLUMN created_at TEXT")

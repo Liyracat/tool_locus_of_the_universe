@@ -231,7 +231,7 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_model
 
 
 -- レイアウト（地図）定義
-CREATE TABLE layout_runs (
+CREATE TABLE IF NOT EXISTS layout_runs (
   layout_id TEXT PRIMARY KEY,
   algorithm TEXT NOT NULL,                  -- 'umap' など
   dims      INTEGER NOT NULL,               -- 2 or 3
@@ -244,11 +244,11 @@ CREATE TABLE layout_runs (
 );
 
 -- scopeの整合性（SQLiteのCHECKは弱いけど最低限）
-CREATE INDEX idx_layout_runs_scope
+CREATE INDEX IF NOT EXISTS idx_layout_runs_scope
   ON layout_runs(scope_type, scope_cluster_id);
 
 -- レイアウト上の各点
-CREATE TABLE layout_points (
+CREATE TABLE IF NOT EXISTS layout_points (
   layout_id TEXT NOT NULL,
   target_type TEXT NOT NULL CHECK (target_type IN ('cluster','seed','utterance')),
   target_id   TEXT NOT NULL,
@@ -261,8 +261,11 @@ CREATE TABLE layout_points (
   FOREIGN KEY (layout_id) REFERENCES layout_runs(layout_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_layout_points_target
+CREATE INDEX IF NOT EXISTS idx_layout_points_target
   ON layout_points(target_type, target_id);
+
+CREATE INDEX IF NOT EXISTS idx_layout_points_layout
+  ON layout_points(layout_id, is_active);
 
 
 -- =========================================

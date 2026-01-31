@@ -437,6 +437,147 @@ def _handle_seed_extract(job: WorkerJob, utterance: dict, kind: str, flag_field:
             )
 
 
+def _ensure_global_layout_run() -> str:
+    params_json = json.dumps({"n_components": 2, "n_neighbors": 15, "min_dist": 0.1, "random_state": 42})
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT layout_id FROM layout_runs
+            WHERE scope_type = 'global' AND is_active = 1
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row:
+            return row["layout_id"]
+        layout_id = str(uuid.uuid4())
+        conn.execute(
+            """
+            INSERT INTO layout_runs (
+              layout_id, algorithm, dims, scope_type, scope_cluster_id,
+              params_json, is_active, created_at
+            ) VALUES (
+              :layout_id, 'umap', 2, 'global', NULL,
+              :params_json, 1, datetime('now')
+            )
+            """,
+            {"layout_id": layout_id, "params_json": params_json},
+        )
+        return layout_id
+
+
+def _fetch_utterance_ids_for_seed(seed_id: str) -> list[str]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT utterance_id FROM utterance_seeds WHERE seed_id = :seed_id",
+            {"seed_id": seed_id},
+        ).fetchall()
+    return [row["utterance_id"] for row in rows]
+
+
+def _avg_coords_from_layout(layout_id: str, neighbor_ids: list[tuple[str, str]]) -> tuple[float, float]:
+    if not neighbor_ids:
+        return 0.0, 0.0
+    placeholders = ",".join("?" for _ in neighbor_ids)
+    args: list[str] = []
+    for t_type, t_id in neighbor_ids:
+        args.extend([t_type, t_id])
+    where_clause = " OR ".join(["(target_type = ? AND target_id = ?)"] * len(neighbor_ids))
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT x, y
+            FROM layout_points
+            WHERE layout_id = ? AND is_active = 1
+              AND ({where_clause})
+            LIMIT 10
+            """,
+            [layout_id, *args],
+        ).fetchall()
+    if not rows:
+        return 0.0, 0.0
+    avg_x = float(sum(row["x"] for row in rows) / len(rows))
+    avg_y = float(sum(row["y"] for row in rows) / len(rows))
+    return avg_x, avg_y
+
+
+def _insert_layout_points(
+    layout_id: str,
+    target_type: str,
+    target_ids: str | list[str],
+    top10: list[tuple[str, str, float]],
+) -> None:
+    neighbor_ids = [(t_type, t_id) for t_type, t_id, _ in top10]
+    avg_x, avg_y = _avg_coords_from_layout(layout_id, neighbor_ids)
+    ids = [target_ids] if isinstance(target_ids, str) else target_ids
+    with get_conn() as conn:
+        for target_id in ids:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO layout_points (
+                  layout_id, target_type, target_id, x, y, is_active, created_at
+                ) VALUES (
+                  :layout_id, :target_type, :target_id, :x, :y, 1, datetime('now')
+                )
+                """,
+                {
+                    "layout_id": layout_id,
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "x": avg_x,
+                    "y": avg_y,
+                },
+            )
+
+
+def _insert_layout_points_for_cluster_run(
+    cluster_id: str,
+    target_type: str,
+    target_ids: str | list[str],
+    top10: list[tuple[str, str, float]],
+) -> None:
+    with get_conn() as conn:
+        runs = conn.execute(
+            """
+            SELECT layout_id
+            FROM layout_runs
+            WHERE scope_type = 'cluster'
+              AND scope_cluster_id = :cluster_id
+              AND is_active = 1
+            """,
+            {"cluster_id": cluster_id},
+        ).fetchall()
+    for run in runs:
+        _insert_layout_points(run["layout_id"], target_type, target_ids, top10)
+
+
+def _deactivate_global_points_for_utterances(utterance_ids: list[str]) -> None:
+    if not utterance_ids:
+        return
+    with get_conn() as conn:
+        run = conn.execute(
+            """
+            SELECT layout_id FROM layout_runs
+            WHERE scope_type = 'global' AND is_active = 1
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if not run:
+            return
+        for utterance_id in utterance_ids:
+            conn.execute(
+                """
+                UPDATE layout_points
+                SET is_active = 0
+                WHERE layout_id = :layout_id
+                  AND target_type = 'utterance'
+                  AND target_id = :target_id
+                """,
+                {"layout_id": run["layout_id"], "target_id": utterance_id},
+            )
+
+
 def _fetch_embedding_source(job: WorkerJob) -> tuple[str, str]:
     with get_conn() as conn:
         if job.target_table == "utterance":
@@ -511,6 +652,10 @@ def _handle_embedding(job: WorkerJob) -> None:
             {"model_name": EMBED_MODEL_NAME},
         ).fetchall()
 
+    if target_type == "utterance":
+        return
+
+    rows = [row for row in rows if row["target_type"] in ("seed", "cluster")]
     if not rows:
         return
 
@@ -526,7 +671,7 @@ def _handle_embedding(job: WorkerJob) -> None:
     index.add(matrix)
 
     target_vec = _decode_vector(vector_blob, dims).reshape(1, -1)
-    scores, indices = index.search(target_vec, 30)
+    scores, indices = index.search(target_vec, min(30, len(ids)))
     scored = []
     for score, idx in zip(scores[0].tolist(), indices[0].tolist()):
         if idx < 0 or idx >= len(ids):
@@ -540,40 +685,7 @@ def _handle_embedding(job: WorkerJob) -> None:
     top10 = scored[:10]
     top_clusters = [item for item in top20 if item[0] == "cluster"][:2]
 
-    # layout update (seed/cluster only)
-    if target_type in ("seed", "cluster") and top20:
-        with get_conn() as conn:
-            layout_rows = conn.execute(
-                """
-                SELECT target_type, target_id, x, y
-                FROM layouts
-                WHERE target_type IN ('seed','cluster')
-                """,
-            ).fetchall()
-        layout_map = {(row["target_type"], row["target_id"]): (row["x"], row["y"]) for row in layout_rows}
-        coords = [layout_map.get((t, i)) for t, i, _ in top20 if (t, i) in layout_map]
-        if coords:
-            avg_x = float(sum(x for x, _ in coords) / len(coords))
-            avg_y = float(sum(y for _, y in coords) / len(coords))
-            with get_conn() as conn:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO layouts (
-                      layout_id, layout_name, layout_kind, target_type, target_id, x, y, created_at
-                    ) VALUES (
-                      :layout_id, 'temp_neighbor_avg', 'temp',
-                      :target_type, :target_id, :x, :y, datetime('now')
-                    )
-                    """,
-                    {
-                        "layout_id": str(uuid.uuid4()),
-                        "target_type": target_type,
-                        "target_id": job.target_id,
-                        "x": avg_x,
-                        "y": avg_y,
-                    },
-                )
-
+    cluster_edges_added = False
     for t_type, t_id, score in top_clusters:
         _upsert_edge(
             src_type=target_type,
@@ -583,6 +695,19 @@ def _handle_embedding(job: WorkerJob) -> None:
             edge_type="part_of",
             weight=score,
         )
+        cluster_edges_added = True
+        _insert_layout_points_for_cluster_run(t_id, target_type, job.target_id, top10)
+        if target_type == "seed":
+            utterance_ids = _fetch_utterance_ids_for_seed(job.target_id)
+            _insert_layout_points_for_cluster_run(t_id, "utterance", utterance_ids, top10)
+            _deactivate_global_points_for_utterances(utterance_ids)
+
+    if not cluster_edges_added:
+        layout_id = _ensure_global_layout_run()
+        _insert_layout_points(layout_id, target_type, job.target_id, top10)
+        if target_type == "seed":
+            utterance_ids = _fetch_utterance_ids_for_seed(job.target_id)
+            _insert_layout_points(layout_id, "utterance", utterance_ids, top10)
 
     for t_type, t_id, score in top10:
         _upsert_edge(

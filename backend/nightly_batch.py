@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -211,6 +212,7 @@ def _cluster_split() -> None:
         _archive_cluster(cluster_id)
         for group in (group_a, group_b):
             new_cluster_id = _create_cluster_from_seeds(group, embed_map)
+            _insert_cluster_into_existing_layout_runs(cluster_id, new_cluster_id)
             _enqueue_cluster_body(new_cluster_id)
 
 
@@ -285,6 +287,7 @@ def _cluster_merge() -> None:
         for seed_id in seed_ids:
             _upsert_edge("seed", seed_id, "cluster", target_cluster_id, "part_of", 1.0)
 
+        _insert_layout_points_into_cluster_runs(target_cluster_id, seed_ids)
         _update_cluster_averages(target_cluster_id)
         _update_cluster_embedding(target_cluster_id, embed_map)
         _enqueue_cluster_body(target_cluster_id)
@@ -312,27 +315,42 @@ def _cluster_create() -> None:
     embed_map = {row["target_id"]: _decode_vector(row["vector"], row["dims"]) for row in seed_embeddings}
 
     used_seed_ids: set[str] = set()
+    used_cluster_ids: set[str] = set()
 
     for idx, (t_type, t_id) in enumerate(ids):
-        if t_type != "seed" or t_id in used_seed_ids:
+        if t_type == "seed" and t_id in used_seed_ids:
             continue
+        if t_type == "cluster" and t_id in used_cluster_ids:
+            continue
+
         vec = matrix[idx : idx + 1]
         scores, neighbors = index.search(vec, min(30, len(ids)))
         neighbors_ids = [ids[n_idx] for n_idx in neighbors[0].tolist() if n_idx >= 0]
         seed_neighbors = [nid for nid in neighbors_ids if nid[0] == "seed"]
-        cluster_neighbors = [nid for nid in neighbors_ids[:5] if nid[0] == "cluster"]
-        if cluster_neighbors:
-            continue
-        if len(seed_neighbors) < 20:
+        cluster_neighbors = [nid for nid in neighbors_ids if nid[0] == "cluster"]
+        cluster_neighbors_top5 = [nid for nid in neighbors_ids[:5] if nid[0] == "cluster"]
+
+        if len(seed_neighbors) >= 20 and not cluster_neighbors_top5:
+            group_seed_ids = [sid for _, sid in seed_neighbors]
+            if any(seed_id not in embed_map for seed_id in group_seed_ids):
+                continue
+            new_cluster_id = _create_cluster_from_seeds(group_seed_ids, embed_map)
+            _insert_cluster_into_neighbor_layout_runs(neighbors_ids, new_cluster_id)
+            _enqueue_cluster_body(new_cluster_id)
+            used_seed_ids.update(group_seed_ids)
             continue
 
-        group_seed_ids = [sid for _, sid in seed_neighbors]
-        if any(seed_id not in embed_map for seed_id in group_seed_ids):
-            continue
-
-        new_cluster_id = _create_cluster_from_seeds(group_seed_ids, embed_map)
-        _enqueue_cluster_body(new_cluster_id)
-        used_seed_ids.update(group_seed_ids)
+        if len(cluster_neighbors) >= 20:
+            cluster_ids = [cid for _, cid in cluster_neighbors]
+            seed_ids = _seed_ids_from_clusters(cluster_ids)
+            if not seed_ids or any(seed_id not in embed_map for seed_id in seed_ids):
+                continue
+            new_cluster_id = _create_cluster_from_seeds(seed_ids, embed_map)
+            for cluster_id in cluster_ids:
+                _upsert_edge("cluster", cluster_id, "cluster", new_cluster_id, "part_of", 1.0)
+            _insert_cluster_into_neighbor_layout_runs(neighbors_ids, new_cluster_id)
+            _enqueue_cluster_body(new_cluster_id)
+            used_cluster_ids.update(cluster_ids)
 
 
 def _regenerate_edges() -> None:
@@ -401,33 +419,88 @@ def _recalculate_layouts() -> None:
     _ensure_numpy()
     _ensure_umap()
 
-    ids, matrix = _load_embeddings(["seed", "cluster"])
-    if not ids:
-        return
-
-    reducer = umap.UMAP(n_components=2, n_neighbors=15, min_dist=0.1, random_state=42)
-    coords = reducer.fit_transform(matrix)
-
     with get_conn() as conn:
-        for (t_type, t_id), coord in zip(ids, coords):
-            if t_type not in ("seed", "cluster"):
-                continue
-            conn.execute(
+        runs = conn.execute(
+            """
+            SELECT layout_id, params_json
+            FROM layout_runs
+            WHERE is_active = 1
+            """
+        ).fetchall()
+
+    for run in runs:
+        layout_id = run["layout_id"]
+        params = {"n_components": 2, "n_neighbors": 15, "min_dist": 0.1, "random_state": 42}
+        if run["params_json"]:
+            try:
+                params.update(json.loads(run["params_json"]))
+            except json.JSONDecodeError:
+                pass
+
+        with get_conn() as conn:
+            points = conn.execute(
                 """
-                INSERT OR REPLACE INTO layouts (
-                  layout_id, layout_name, layout_kind, target_type, target_id, x, y, created_at
-                ) VALUES (
-                  :layout_id, 'global_umap_v1', 'global', :target_type, :target_id, :x, :y, datetime('now')
-                )
+                SELECT target_type, target_id
+                FROM layout_points
+                WHERE layout_id = :layout_id AND is_active = 1
                 """,
-                {
-                    "layout_id": str(uuid.uuid4()),
-                    "target_type": t_type,
-                    "target_id": t_id,
-                    "x": float(coord[0]),
-                    "y": float(coord[1]),
-                },
-            )
+                {"layout_id": layout_id},
+            ).fetchall()
+        if not points:
+            continue
+
+        ids: list[tuple[str, str]] = []
+        vectors: list["np.ndarray"] = []
+        with get_conn() as conn:
+            for point in points:
+                row = conn.execute(
+                    """
+                    SELECT dims, vector
+                    FROM embeddings
+                    WHERE target_type = :target_type AND target_id = :target_id
+                      AND model_name = :model_name AND is_l2_normalized = 1
+                    """,
+                    {
+                        "target_type": point["target_type"],
+                        "target_id": point["target_id"],
+                        "model_name": MODEL_NAME,
+                    },
+                ).fetchone()
+                if not row:
+                    continue
+                ids.append((point["target_type"], point["target_id"]))
+                vectors.append(_decode_vector(row["vector"], row["dims"]))
+
+        if not vectors:
+            continue
+
+        matrix = np.vstack(vectors).astype(np.float32)
+        reducer = umap.UMAP(
+            n_components=params.get("n_components", 2),
+            n_neighbors=params.get("n_neighbors", 15),
+            min_dist=params.get("min_dist", 0.1),
+            random_state=params.get("random_state", 42),
+        )
+        coords = reducer.fit_transform(matrix)
+
+        with get_conn() as conn:
+            for (t_type, t_id), coord in zip(ids, coords):
+                conn.execute(
+                    """
+                    UPDATE layout_points
+                    SET x = :x, y = :y
+                    WHERE layout_id = :layout_id
+                      AND target_type = :target_type
+                      AND target_id = :target_id
+                    """,
+                    {
+                        "layout_id": layout_id,
+                        "target_type": t_type,
+                        "target_id": t_id,
+                        "x": float(coord[0]),
+                        "y": float(coord[1]),
+                    },
+                )
 
 
 def _archive_cluster(cluster_id: str) -> None:
@@ -442,6 +515,33 @@ def _archive_cluster(cluster_id: str) -> None:
             SET is_active = 0, updated_at = datetime('now')
             WHERE (src_type = 'cluster' AND src_id = :cluster_id)
                OR (dst_type = 'cluster' AND dst_id = :cluster_id)
+            """,
+            {"cluster_id": cluster_id},
+        )
+        conn.execute(
+            """
+            UPDATE layout_runs
+            SET is_active = 0
+            WHERE scope_type = 'cluster' AND scope_cluster_id = :cluster_id
+            """,
+            {"cluster_id": cluster_id},
+        )
+        conn.execute(
+            """
+            UPDATE layout_points
+            SET is_active = 0
+            WHERE layout_id IN (
+              SELECT layout_id FROM layout_runs
+              WHERE scope_type = 'cluster' AND scope_cluster_id = :cluster_id
+            )
+            """,
+            {"cluster_id": cluster_id},
+        )
+        conn.execute(
+            """
+            UPDATE layout_points
+            SET is_active = 0
+            WHERE target_type = 'cluster' AND target_id = :cluster_id
             """,
             {"cluster_id": cluster_id},
         )
@@ -509,21 +609,165 @@ def _create_cluster_from_seeds(seed_ids: list[str], embed_map: dict[str, "np.nda
             },
         )
 
+        layout_id = str(uuid.uuid4())
         conn.execute(
             """
-            INSERT INTO layouts (
-              layout_id, layout_name, layout_kind, target_type, target_id, x, y, created_at
+            INSERT INTO layout_runs (
+              layout_id, algorithm, dims, scope_type, scope_cluster_id,
+              params_json, is_active, created_at
             ) VALUES (
-              :layout_id, 'temp_0', 'temp', 'cluster', :target_id, 0, 0, datetime('now')
+              :layout_id, 'umap', 2, 'cluster', :cluster_id,
+              :params_json, 1, datetime('now')
             )
             """,
-            {"layout_id": str(uuid.uuid4()), "target_id": cluster_id},
+            {
+                "layout_id": layout_id,
+                "cluster_id": cluster_id,
+                "params_json": json.dumps(
+                    {"n_components": 2, "n_neighbors": 15, "min_dist": 0.1, "random_state": 42}
+                ),
+            },
         )
+
+        _insert_layout_points_for_cluster(layout_id, cluster_id, seed_ids)
 
         for seed_id in seed_ids:
             _upsert_edge("seed", seed_id, "cluster", cluster_id, "part_of", 1.0)
 
     return cluster_id
+
+
+def _seed_ids_from_clusters(cluster_ids: list[str]) -> list[str]:
+    if not cluster_ids:
+        return []
+    placeholders = ",".join("?" for _ in cluster_ids)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT src_id
+            FROM edges
+            WHERE src_type = 'seed'
+              AND dst_type = 'cluster'
+              AND edge_type = 'part_of'
+              AND is_active = 1
+              AND dst_id IN ({placeholders})
+            """,
+            cluster_ids,
+        ).fetchall()
+    return [row["src_id"] for row in rows]
+
+
+def _insert_layout_points_for_cluster(layout_id: str, cluster_id: str, seed_ids: list[str]) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO layout_points (
+              layout_id, target_type, target_id, x, y, is_active, created_at
+            ) VALUES (
+              :layout_id, 'cluster', :cluster_id, 0, 0, 1, datetime('now')
+            )
+            """,
+            {"layout_id": layout_id, "cluster_id": cluster_id},
+        )
+        for seed_id in seed_ids:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO layout_points (
+                  layout_id, target_type, target_id, x, y, is_active, created_at
+                ) VALUES (
+                  :layout_id, 'seed', :seed_id, 0, 0, 1, datetime('now')
+                )
+                """,
+                {"layout_id": layout_id, "seed_id": seed_id},
+            )
+        utterance_rows = conn.execute(
+            """
+            SELECT DISTINCT utterance_id
+            FROM utterance_seeds
+            WHERE seed_id IN ({seed_placeholders})
+            """.format(seed_placeholders=",".join("?" for _ in seed_ids)),
+            seed_ids,
+        ).fetchall() if seed_ids else []
+        for row in utterance_rows:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO layout_points (
+                  layout_id, target_type, target_id, x, y, is_active, created_at
+                ) VALUES (
+                  :layout_id, 'utterance', :utterance_id, 0, 0, 1, datetime('now')
+                )
+                """,
+                {"layout_id": layout_id, "utterance_id": row["utterance_id"]},
+            )
+
+
+def _insert_cluster_into_existing_layout_runs(source_cluster_id: str, new_cluster_id: str) -> None:
+    with get_conn() as conn:
+        runs = conn.execute(
+            """
+            SELECT DISTINCT layout_id
+            FROM layout_points
+            WHERE target_type = 'cluster' AND target_id = :cluster_id AND is_active = 1
+            """,
+            {"cluster_id": source_cluster_id},
+        ).fetchall()
+        for run in runs:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO layout_points (
+                  layout_id, target_type, target_id, x, y, is_active, created_at
+                ) VALUES (
+                  :layout_id, 'cluster', :cluster_id, 0, 0, 1, datetime('now')
+                )
+                """,
+                {"layout_id": run["layout_id"], "cluster_id": new_cluster_id},
+            )
+
+
+def _insert_layout_points_into_cluster_runs(cluster_id: str, seed_ids: list[str]) -> None:
+    with get_conn() as conn:
+        runs = conn.execute(
+            """
+            SELECT layout_id
+            FROM layout_runs
+            WHERE scope_type = 'cluster' AND scope_cluster_id = :cluster_id AND is_active = 1
+            """,
+            {"cluster_id": cluster_id},
+        ).fetchall()
+    for run in runs:
+        _insert_layout_points_for_cluster(run["layout_id"], cluster_id, seed_ids)
+
+
+def _insert_cluster_into_neighbor_layout_runs(
+    neighbor_ids: list[tuple[str, str]],
+    new_cluster_id: str,
+) -> None:
+    if not neighbor_ids:
+        return
+    placeholders = " OR ".join(["(target_type = ? AND target_id = ?)"] * len(neighbor_ids))
+    params: list[str] = []
+    for t_type, t_id in neighbor_ids:
+        params.extend([t_type, t_id])
+    with get_conn() as conn:
+        runs = conn.execute(
+            f"""
+            SELECT DISTINCT layout_id
+            FROM layout_points
+            WHERE is_active = 1 AND ({placeholders})
+            """,
+            params,
+        ).fetchall()
+        for run in runs:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO layout_points (
+                  layout_id, target_type, target_id, x, y, is_active, created_at
+                ) VALUES (
+                  :layout_id, 'cluster', :cluster_id, 0, 0, 1, datetime('now')
+                )
+                """,
+                {"layout_id": run["layout_id"], "cluster_id": new_cluster_id},
+            )
 
 
 def _enqueue_cluster_body(cluster_id: str) -> None:
