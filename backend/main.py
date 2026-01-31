@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
+import uuid
 
 try:
     from .db import get_conn, init_db
@@ -74,6 +75,7 @@ def import_commit(payload: ImportCommitRequest) -> dict:
     created_ids: List[str] = []
     with get_conn() as conn:
         for part in payload.parts:
+            utterance_id = str(uuid.uuid4())
             cur = conn.execute(
                 """
                 INSERT INTO utterance (
@@ -83,7 +85,7 @@ def import_commit(payload: ImportCommitRequest) -> dict:
                   hypothetical, confidence, reinterpretation, resistance, direction,
                   created_at, updated_at
                 ) VALUES (
-                  lower(hex(randomblob(16))), :thread_id, :message_id, :chunk_id,
+                  :utterance_id, :thread_id, :message_id, :chunk_id,
                   :speaker_id, :conversation_at, :contents,
                   NULL, NULL,
                   NULL, NULL, NULL, NULL, NULL,
@@ -91,6 +93,7 @@ def import_commit(payload: ImportCommitRequest) -> dict:
                 )
                 """,
                 {
+                    "utterance_id": utterance_id,
                     "thread_id": payload.thread_id,
                     "message_id": part.message_id,
                     "chunk_id": part.text_id,
@@ -99,7 +102,52 @@ def import_commit(payload: ImportCommitRequest) -> dict:
                     "contents": part.contents,
                 },
             )
-            created_ids.append(cur.lastrowid)
+            created_ids.append(utterance_id)
+
+            speaker_row = conn.execute(
+                "SELECT canonical_role FROM speakers WHERE speaker_id = :speaker_id",
+                {"speaker_id": part.speaker_id},
+            ).fetchone()
+            canonical_role = speaker_row["canonical_role"] if speaker_row else None
+
+            job_types = [
+                "utterance_role",
+                "did_asked_evaluation",
+                "did_asked_model",
+                "did_asked_premise",
+                "did_asked_conversion",
+                "did_asked_question",
+                "did_asked_knowledge",
+                "embedding",
+            ]
+            if canonical_role == "self":
+                job_types.extend(
+                    [
+                        "hypothetical",
+                        "confidence",
+                        "reinterpretation",
+                        "resistance",
+                        "direction",
+                    ]
+                )
+
+            for job_type in job_types:
+                conn.execute(
+                    """
+                    INSERT INTO worker_jobs (
+                      job_id, job_type, target_table, target_id,
+                      status, priority, created_at, updated_at
+                    ) VALUES (
+                      :job_id, :job_type, 'utterance', :target_id,
+                      'queued', 10, datetime('now'), datetime('now')
+                    )
+                    """,
+                    {
+                        "job_id": str(uuid.uuid4()),
+                        "job_type": job_type,
+                        "target_id": utterance_id,
+                    },
+                )
     return {"created_utterance_ids": created_ids, "thread_id": payload.thread_id}
 
 

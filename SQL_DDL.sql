@@ -327,5 +327,7 @@ CREATE INDEX IF NOT EXISTS idx_seed_merge_candidates_seed_b
 
 CREATE TABLE IF NOT EXISTS all_seed_info (
     avg_seed_distance REAL,                -- 近傍距離の平均
-    median_seed_distance REAL              -- 近傍距離の中央値
+    median_seed_distance REAL,             -- 近傍距離の中央値
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );

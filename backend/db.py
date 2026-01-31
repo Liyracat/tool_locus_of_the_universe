@@ -20,3 +20,10 @@ def init_db() -> None:
     ddl_sql = DDL_PATH.read_text(encoding="utf-8")
     with get_conn() as conn:
         conn.executescript(ddl_sql)
+        cols = conn.execute("PRAGMA table_info(all_seed_info)").fetchall()
+        if cols:
+            col_names = {row["name"] for row in cols}
+            if "created_at" not in col_names:
+                conn.execute("ALTER TABLE all_seed_info ADD COLUMN created_at TEXT")
+            if "updated_at" not in col_names:
+                conn.execute("ALTER TABLE all_seed_info ADD COLUMN updated_at TEXT")
