@@ -247,12 +247,6 @@ CREATE TABLE layout_runs (
 CREATE INDEX idx_layout_runs_scope
   ON layout_runs(scope_type, scope_cluster_id);
 
--- 同一スコープ・同一パラメータの重複を防ぎたいなら（任意）
--- params_jsonをそのままUNIQUEに使うのは揺れやすいので、hashを持たせるのが堅い
-ALTER TABLE layout_runs ADD COLUMN params_hash TEXT;
-CREATE UNIQUE INDEX ux_layout_runs_scope_params
-  ON layout_runs(algorithm, dims, scope_type, scope_cluster_id, params_hash);
-
 -- レイアウト上の各点
 CREATE TABLE layout_points (
   layout_id TEXT NOT NULL,
