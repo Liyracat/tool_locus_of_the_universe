@@ -111,9 +111,10 @@ def _split_import_blocks(raw_text: str, speaker_map: dict[str, dict]) -> list[tu
         normalized_line = line.strip().replace("：", ":")
         if normalized_line:
             speaker_label, remainder = normalized_line.split(":", 1) if ":" in normalized_line else (None, None)
-            if speaker_label and speaker_label in speaker_map:
+            candidate_label = speaker_label or normalized_line
+            if candidate_label and candidate_label in speaker_map:
                 flush_block()
-                current_speaker = speaker_map[speaker_label]
+                current_speaker = speaker_map[candidate_label]
                 remainder = remainder.strip() if remainder else ""
                 if remainder:
                     current_lines.append(remainder)

@@ -255,27 +255,52 @@ def _process_job(job: WorkerJob) -> None:
     elif job.job_type == "did_asked_evaluation":
         if not utterance_dict:
             raise RuntimeError("utterance is required")
-        _handle_seed_extract(job, utterance_dict, "言い切られている見方・評価について")
+        _handle_seed_extract(
+            job,
+            utterance_dict,
+            "言い切られている見方・評価について",
+            "did_asked_evaluation",
+        )
     elif job.job_type == "did_asked_model":
         if not utterance_dict:
             raise RuntimeError("utterance is required")
-        _handle_seed_extract(job, utterance_dict, "事象・概念に対して定義している箇所")
+        _handle_seed_extract(
+            job,
+            utterance_dict,
+            "事象・概念に対して定義している箇所",
+            "did_asked_model",
+        )
     elif job.job_type == "did_asked_premise":
         if not utterance_dict:
             raise RuntimeError("utterance is required")
-        _handle_seed_extract(job, utterance_dict, "暗黙の前提・思考の土台になっている箇所")
+        _handle_seed_extract(
+            job,
+            utterance_dict,
+            "暗黙の前提・思考の土台になっている箇所",
+            "did_asked_premise",
+        )
     elif job.job_type == "did_asked_conversion":
         if not utterance_dict:
             raise RuntimeError("utterance is required")
-        _handle_seed_extract(job, utterance_dict, "発話者が思考として引っかかった箇所・視点に変化が起きた箇所")
+        _handle_seed_extract(
+            job,
+            utterance_dict,
+            "発話者が思考として引っかかった箇所・視点に変化が起きた箇所",
+            "did_asked_conversion",
+        )
     elif job.job_type == "did_asked_question":
         if not utterance_dict:
             raise RuntimeError("utterance is required")
-        _handle_seed_extract(job, utterance_dict, "答えがでていない疑問・まとまらない主張をしている箇所")
+        _handle_seed_extract(
+            job,
+            utterance_dict,
+            "答えがでていない疑問・まとまらない主張をしている箇所",
+            "did_asked_question",
+        )
     elif job.job_type == "did_asked_knowledge":
         if not utterance_dict:
             raise RuntimeError("utterance is required")
-        _handle_seed_extract(job, utterance_dict, "知識と呼べる箇所")
+        _handle_seed_extract(job, utterance_dict, "知識と呼べる箇所", "did_asked_knowledge")
     elif job.job_type == "embedding":
         _handle_embedding(job)
     elif job.job_type == "cluster_body":
@@ -344,13 +369,11 @@ def _handle_metric(job: WorkerJob, utterance: dict, field: str, range_hint: str)
         )
 
 
-def _handle_seed_extract(job: WorkerJob, utterance: dict, kind: str) -> None:
+def _handle_seed_extract(job: WorkerJob, utterance: dict, kind: str, flag_field: str | None = None) -> None:
     prompt = _prompt_seed(kind, utterance)
     response = call_ollama(prompt)
     text = response.get("response", "") if isinstance(response, dict) else str(response)
     seeds = _split_seed_lines(text)
-    if not seeds:
-        return
 
     with get_conn() as conn:
         for seed_body in seeds:
@@ -378,18 +401,30 @@ def _handle_seed_extract(job: WorkerJob, utterance: dict, kind: str) -> None:
                 {"utterance_id": job.target_id, "seed_id": seed_id},
             )
 
-        conn.execute(
-            """
-            INSERT INTO worker_jobs (
-              job_id, job_type, target_table, target_id,
-              status, priority, created_at, updated_at
-            ) VALUES (
-              :job_id, 'embedding', 'utterance', :target_id,
-              'queued', 10, datetime('now'), datetime('now')
+        if seeds:
+            conn.execute(
+                """
+                INSERT INTO worker_jobs (
+                  job_id, job_type, target_table, target_id,
+                  status, priority, created_at, updated_at
+                ) VALUES (
+                  :job_id, 'embedding', 'utterance', :target_id,
+                  'queued', 10, datetime('now'), datetime('now')
+                )
+                """,
+                {"job_id": str(uuid.uuid4()), "target_id": job.target_id},
             )
-            """,
-            {"job_id": str(uuid.uuid4()), "target_id": job.target_id},
-        )
+
+        if flag_field:
+            conn.execute(
+                f"""
+                UPDATE utterance
+                SET {flag_field} = 1,
+                    updated_at = datetime('now')
+                WHERE utterance_id = :utterance_id
+                """,
+                {"utterance_id": job.target_id},
+            )
 
 
 def _fetch_embedding_source(job: WorkerJob) -> tuple[str, str]:
