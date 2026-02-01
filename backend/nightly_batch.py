@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import Iterable
 
 from .db import get_conn
@@ -915,10 +916,21 @@ def _upsert_edge(src_type: str, src_id: str, dst_type: str, dst_id: str, edge_ty
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s %(message)s")
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    error_handler = logging.FileHandler(log_dir / "nightly_batch_error.log", encoding="utf-8")
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(message)s"))
+    logging.getLogger().addHandler(error_handler)
     start = time.time()
-    run_nightly_batch()
-    elapsed = time.time() - start
-    logger.info("nightly batch finished in %.2fs", elapsed)
+    try:
+        run_nightly_batch()
+    except Exception:  # noqa: BLE001
+        logger.exception("nightly batch failed")
+        raise
+    else:
+        elapsed = time.time() - start
+        logger.info("nightly batch finished in %.2fs", elapsed)
 
 
 if __name__ == "__main__":

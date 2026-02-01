@@ -5,7 +5,9 @@ import logging
 import re
 import time
 import uuid
+import urllib.error
 import urllib.request
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence, Tuple
 
@@ -56,10 +58,15 @@ def call_ollama(prompt: str, model_name: str | None = None) -> dict[str, Any]:
         method="POST",
     )
     logger.info("Ollama request prompt: %s", prompt)
-    with urllib.request.urlopen(req, timeout=300000) as resp:
-        body = resp.read().decode("utf-8")
-        logger.info("Ollama response status=%s body=%s", resp.status, body)
-        return json.loads(body)
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            body = resp.read().decode("utf-8")
+            logger.info("Ollama response status=%s body=%s", resp.status, body)
+            return json.loads(body)
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        logger.error("Ollama HTTP error status=%s reason=%s body=%s", exc.code, exc.reason, body)
+        raise
 
 
 def call_ollama_embedding(text: str, model_name: str | None = None) -> list[float]:
@@ -74,10 +81,15 @@ def call_ollama_embedding(text: str, model_name: str | None = None) -> list[floa
         method="POST",
     )
     logger.info("Ollama embedding request length=%s", len(text))
-    with urllib.request.urlopen(req, timeout=300000) as resp:
-        body = resp.read().decode("utf-8")
-        logger.info("Ollama embedding response status=%s", resp.status)
-        data = json.loads(body)
+    try:
+        with urllib.request.urlopen(req, timeout=300000) as resp:
+            body = resp.read().decode("utf-8")
+            logger.info("Ollama embedding response status=%s", resp.status)
+            data = json.loads(body)
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        logger.error("Ollama embedding HTTP error status=%s reason=%s body=%s", exc.code, exc.reason, body)
+        raise
     embedding = data.get("embedding")
     if not isinstance(embedding, list):
         raise RuntimeError("Invalid embedding response")
@@ -807,6 +819,12 @@ def _handle_cluster_body(job: WorkerJob) -> None:
         )
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s %(message)s")
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    error_handler = logging.FileHandler(log_dir / "worker_batch_error.log", encoding="utf-8")
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(message)s"))
+    logging.getLogger().addHandler(error_handler)
     start = time.time()
     run_worker_batch()
     elapsed = time.time() - start
