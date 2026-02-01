@@ -15,6 +15,9 @@ export default function SettingsPage() {
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
   const [utteranceRoles, setUtteranceRoles] = useState<UtteranceRole[]>([]);
   const [workerJobs, setWorkerJobs] = useState<WorkerJob[]>([]);
+  const [showSpeakers, setShowSpeakers] = useState(false);
+  const [showRoles, setShowRoles] = useState(false);
+  const [jobPage, setJobPage] = useState(1);
   const [speakerForm, setSpeakerForm] = useState({ ...emptySpeaker });
   const [editingSpeakerId, setEditingSpeakerId] = useState<string | null>(null);
   const [roleForm, setRoleForm] = useState({ ...emptyRole });
@@ -39,6 +42,15 @@ export default function SettingsPage() {
   useEffect(() => {
     void loadAll();
   }, []);
+
+  const jobsPerPage = 50;
+  const totalJobPages = Math.max(1, Math.ceil(workerJobs.length / jobsPerPage));
+  const jobStart = (jobPage - 1) * jobsPerPage;
+  const pagedJobs = workerJobs.slice(jobStart, jobStart + jobsPerPage);
+
+  useEffect(() => {
+    setJobPage((prev) => Math.min(prev, totalJobPages));
+  }, [totalJobPages]);
 
   const submitSpeaker = async () => {
     setStatus(null);
@@ -136,175 +148,197 @@ export default function SettingsPage() {
       <section className="panel">
         <div className="panel-row">
           <div className="section-title">speakers CRUD</div>
-        </div>
-        <div className="table-wrapper">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>speaker_id</th>
-                <th>speaker_name</th>
-                <th>speaker_role</th>
-                <th>canonical_role</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {speakers.map((speaker) => (
-                <tr key={speaker.speaker_id}>
-                  <td className="mono">{speaker.speaker_id}</td>
-                  <td>{speaker.speaker_name}</td>
-                  <td>{speaker.speaker_role ?? ""}</td>
-                  <td>{speaker.canonical_role}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="button tiny"
-                      onClick={() => {
-                        setEditingSpeakerId(speaker.speaker_id);
-                        setSpeakerForm({
-                          speaker_name: speaker.speaker_name,
-                          speaker_role: speaker.speaker_role ?? "",
-                          canonical_role: speaker.canonical_role,
-                          speaker_type_detail: speaker.speaker_type_detail ?? "",
-                        });
-                      }}
-                    >
-                      編集
-                    </button>
-                    <button
-                      type="button"
-                      className="button tiny ghost"
-                      onClick={() => deleteSpeaker(speaker.speaker_id)}
-                    >
-                      削除
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!speakers.length && (
-                <tr>
-                  <td colSpan={5} className="empty-cell">
-                    スピーカーが登録されていません。
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="form-grid">
-          <div className="field">
-            <label className="label">speaker_name</label>
-            <input
-              className="input"
-              value={speakerForm.speaker_name}
-              onChange={(event) =>
-                setSpeakerForm((prev) => ({ ...prev, speaker_name: event.target.value }))
-              }
-            />
-          </div>
-          <div className="field">
-            <label className="label">speaker_role</label>
-            <input
-              className="input"
-              value={speakerForm.speaker_role}
-              onChange={(event) =>
-                setSpeakerForm((prev) => ({ ...prev, speaker_role: event.target.value }))
-              }
-            />
-          </div>
-          <div className="field">
-            <label className="label">canonical_role</label>
-            <select
-              className="input"
-              value={speakerForm.canonical_role}
-              onChange={(event) =>
-                setSpeakerForm((prev) => ({ ...prev, canonical_role: event.target.value }))
-              }
-            >
-              <option value="self">self</option>
-              <option value="ai">ai</option>
-              <option value="human">human</option>
-              <option value="other">other</option>
-            </select>
-          </div>
-          <div className="field">
-            <label className="label">speaker_type_detail</label>
-            <input
-              className="input"
-              value={speakerForm.speaker_type_detail}
-              onChange={(event) =>
-                setSpeakerForm((prev) => ({ ...prev, speaker_type_detail: event.target.value }))
-              }
-            />
-          </div>
-          <button type="button" className="button primary" onClick={submitSpeaker}>
-            {editingSpeakerId ? "更新" : "保存"}
+          <button
+            type="button"
+            className="button tiny ghost"
+            onClick={() => setShowSpeakers((prev) => !prev)}
+          >
+            {showSpeakers ? "閉じる" : "開く"}
           </button>
         </div>
+        {showSpeakers && (
+          <>
+            <div className="table-wrapper">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>speaker_id</th>
+                    <th>speaker_name</th>
+                    <th>speaker_role</th>
+                    <th>canonical_role</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {speakers.map((speaker) => (
+                    <tr key={speaker.speaker_id}>
+                      <td className="mono">{speaker.speaker_id}</td>
+                      <td>{speaker.speaker_name}</td>
+                      <td>{speaker.speaker_role ?? ""}</td>
+                      <td>{speaker.canonical_role}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button tiny"
+                          onClick={() => {
+                            setEditingSpeakerId(speaker.speaker_id);
+                            setSpeakerForm({
+                              speaker_name: speaker.speaker_name,
+                              speaker_role: speaker.speaker_role ?? "",
+                              canonical_role: speaker.canonical_role,
+                              speaker_type_detail: speaker.speaker_type_detail ?? "",
+                            });
+                          }}
+                        >
+                          編集
+                        </button>
+                        <button
+                          type="button"
+                          className="button tiny ghost"
+                          onClick={() => deleteSpeaker(speaker.speaker_id)}
+                        >
+                          削除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!speakers.length && (
+                    <tr>
+                      <td colSpan={5} className="empty-cell">
+                        スピーカーが登録されていません。
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="form-grid">
+              <div className="field">
+                <label className="label">speaker_name</label>
+                <input
+                  className="input"
+                  value={speakerForm.speaker_name}
+                  onChange={(event) =>
+                    setSpeakerForm((prev) => ({ ...prev, speaker_name: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label className="label">speaker_role</label>
+                <input
+                  className="input"
+                  value={speakerForm.speaker_role}
+                  onChange={(event) =>
+                    setSpeakerForm((prev) => ({ ...prev, speaker_role: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="field">
+                <label className="label">canonical_role</label>
+                <select
+                  className="input"
+                  value={speakerForm.canonical_role}
+                  onChange={(event) =>
+                    setSpeakerForm((prev) => ({ ...prev, canonical_role: event.target.value }))
+                  }
+                >
+                  <option value="self">self</option>
+                  <option value="ai">ai</option>
+                  <option value="human">human</option>
+                  <option value="other">other</option>
+                </select>
+              </div>
+              <div className="field">
+                <label className="label">speaker_type_detail</label>
+                <input
+                  className="input"
+                  value={speakerForm.speaker_type_detail}
+                  onChange={(event) =>
+                    setSpeakerForm((prev) => ({ ...prev, speaker_type_detail: event.target.value }))
+                  }
+                />
+              </div>
+              <button type="button" className="button primary" onClick={submitSpeaker}>
+                {editingSpeakerId ? "更新" : "保存"}
+              </button>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="panel">
         <div className="panel-row">
           <div className="section-title">utterance_roles CRUD</div>
-        </div>
-        <div className="table-wrapper">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>utterance_role_id</th>
-                <th>utterance_role_name</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {utteranceRoles.map((role) => (
-                <tr key={role.utterance_role_id}>
-                  <td>{role.utterance_role_id}</td>
-                  <td>{role.utterance_role_name}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="button tiny"
-                      onClick={() => {
-                        setEditingRoleId(role.utterance_role_id);
-                        setRoleForm({ utterance_role_name: role.utterance_role_name });
-                      }}
-                    >
-                      編集
-                    </button>
-                    <button
-                      type="button"
-                      className="button tiny ghost"
-                      onClick={() => deleteRole(role.utterance_role_id)}
-                    >
-                      削除
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!utteranceRoles.length && (
-                <tr>
-                  <td colSpan={3} className="empty-cell">
-                    ロールが登録されていません。
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="form-grid">
-          <div className="field">
-            <label className="label">utterance_role_name</label>
-            <input
-              className="input"
-              value={roleForm.utterance_role_name}
-              onChange={(event) => setRoleForm({ utterance_role_name: event.target.value })}
-            />
-          </div>
-          <button type="button" className="button primary" onClick={submitRole}>
-            {editingRoleId !== null ? "更新" : "保存"}
+          <button
+            type="button"
+            className="button tiny ghost"
+            onClick={() => setShowRoles((prev) => !prev)}
+          >
+            {showRoles ? "閉じる" : "開く"}
           </button>
         </div>
+        {showRoles && (
+          <>
+            <div className="table-wrapper">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>utterance_role_id</th>
+                    <th>utterance_role_name</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {utteranceRoles.map((role) => (
+                    <tr key={role.utterance_role_id}>
+                      <td>{role.utterance_role_id}</td>
+                      <td>{role.utterance_role_name}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button tiny"
+                          onClick={() => {
+                            setEditingRoleId(role.utterance_role_id);
+                            setRoleForm({ utterance_role_name: role.utterance_role_name });
+                          }}
+                        >
+                          編集
+                        </button>
+                        <button
+                          type="button"
+                          className="button tiny ghost"
+                          onClick={() => deleteRole(role.utterance_role_id)}
+                        >
+                          削除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!utteranceRoles.length && (
+                    <tr>
+                      <td colSpan={3} className="empty-cell">
+                        ロールが登録されていません。
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="form-grid">
+              <div className="field">
+                <label className="label">utterance_role_name</label>
+                <input
+                  className="input"
+                  value={roleForm.utterance_role_name}
+                  onChange={(event) => setRoleForm({ utterance_role_name: event.target.value })}
+                />
+              </div>
+              <button type="button" className="button primary" onClick={submitRole}>
+                {editingRoleId !== null ? "更新" : "保存"}
+              </button>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="panel">
@@ -328,7 +362,7 @@ export default function SettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {workerJobs.map((job) => (
+              {pagedJobs.map((job) => (
                 <tr key={job.job_id}>
                   <td className="mono">{job.job_id}</td>
                   <td>{job.job_type}</td>
@@ -355,6 +389,29 @@ export default function SettingsPage() {
             </tbody>
           </table>
         </div>
+        {totalJobPages > 1 && (
+          <div className="panel-row">
+            <button
+              type="button"
+              className="button tiny ghost"
+              onClick={() => setJobPage((prev) => Math.max(1, prev - 1))}
+              disabled={jobPage <= 1}
+            >
+              前へ
+            </button>
+            <div className="mono">
+              {jobPage} / {totalJobPages}
+            </div>
+            <button
+              type="button"
+              className="button tiny ghost"
+              onClick={() => setJobPage((prev) => Math.min(totalJobPages, prev + 1))}
+              disabled={jobPage >= totalJobPages}
+            >
+              次へ
+            </button>
+          </div>
+        )}
       </section>
     </div>
   );

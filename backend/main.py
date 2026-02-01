@@ -329,7 +329,7 @@ def list_worker_jobs() -> List[WorkerJob]:
             SELECT job_id, job_type, target_table, target_id, status, error,
                    updated_at
             FROM worker_jobs
-            ORDER BY updated_at DESC
+            ORDER BY priority ASC, created_at ASC
             """
         ).fetchall()
     return [WorkerJob(**dict(row)) for row in rows]

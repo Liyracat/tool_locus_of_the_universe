@@ -186,13 +186,13 @@ def _prompt_metric(title: str, utterance: dict, extra: str) -> str:
 def _prompt_seed(kind: str, utterance: dict) -> str:
     return (
         f"以下のテキストから{kind}を、区切り線「---」を設けて列挙してください。\n"
-        "他の文章は禁止。該当するものがない場合は何も返さないでください。\n\n"
+        "他の文章は禁止。該当するものがない場合は何も返さないでください。日本語で返却してください。\n\n"
         "contents：\n"
         f"{utterance['contents']}"
     )
 
 
-def fetch_next_jobs(limit: int = 50) -> list[WorkerJob]:
+def fetch_next_jobs(limit: int = 10000) -> list[WorkerJob]:
     with get_conn() as conn:
         rows = conn.execute(
             """
@@ -222,7 +222,7 @@ def _update_job_status(job_id: str, status: str, error: str | None = None) -> No
         )
 
 
-def run_worker_batch(limit: int = 50) -> None:
+def run_worker_batch(limit: int = 10000) -> None:
     jobs = fetch_next_jobs(limit=limit)
     if not jobs:
         logger.info("No queued jobs.")
