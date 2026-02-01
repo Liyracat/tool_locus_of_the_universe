@@ -43,43 +43,15 @@ f"{utterance['contents']}"
 　　・response内で一番最初に出てきたutterance_role_nameに完全一致するutterance_role_idを、utterance.utterance_role_idに格納
 　　・response内の数値のうち、最小値をutterance.utterance_role_confidenceに格納。
 
-【did_asked_model】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="以下のテキストから事象・概念に対して定義している箇所を、区切り線「---」を設けて列挙してください。\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内を「---」で区切り、それらをseedsにINSERTする
-　　　　・seed_id = 生成UUID
-　　　　・seed_type = seed
-　　　　・body = 区切ったテキスト
-　　　　・created_from = utterance
-　　　　・review_status = auto
-　　　　・created_at = 現在時刻
-　　　　・updated_at = 現在時刻
-　　・utterance_seedsにINSERTする
-　　　　・utterance_id = 読み込ませたutteranceのutterance_id
-　　　　・seed_id = 生成したseed_id
-　　　　・relation_type = derived_from
-　　　　・created_at = 現在時刻
-　　・worker_jobsにINSERTする
-　　　　・job_id = 生成UUID
-　　　　・job_type = embedding
-　　　　・target_table = utterance
-　　　　・target_id = 該当utterance_id
-　　　　・status = queued
-　　　　・priority = 10
-　　　　・created_at = 現在日時
-　　　　・updated_at = 現在日時
-　　・utterancesをUPDATEする
-　　　　・did_asked_model = 1
-　　　　・updated_at = 現在日時
-
 【did_asked_knowledge】
 ・MODEL_NAME = "gpt-oss:20b"
-・prompt ="以下のテキストから知識と呼べる箇所を、区切り線「---」を設けて列挙してください。\n"
-"他の文章は禁止。\n\n"
+・prompt ="以下のテキストから、次のいずれかの形で明示されている内容だけを抽出し、区切り線「---」を設けて列挙してください。\n"
+"- 定義（AとはBである）\n"
+"- 因果関係（AするとBになる）\n"
+"- 一般的な規則・指針（〜すべき／〜するとよい）\n"
+"- 手順・方法（〜するには、まず〜） \n\n"
+"他の文章は禁止。該当するものがない場合は何も返さないでください。\n"
+"日本語で返却してください。\n\n"
 "contents：\n"
 f"{utterance['contents']}"
 ・response受け取り後

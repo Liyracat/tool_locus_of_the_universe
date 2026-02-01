@@ -47,8 +47,6 @@ CREATE TABLE IF NOT EXISTS utterance (
   utterance_role_confidence REAL                         -- 0..1
     CHECK (utterance_role_confidence IS NULL OR (utterance_role_confidence >= 0.0 AND utterance_role_confidence <= 1.0)),
   
-  did_asked_model           INTEGER NOT NULL DEFAULT 0   -- 0/1
-    CHECK (did_asked_model IN (0,1)),
   did_asked_knowledge       INTEGER NOT NULL DEFAULT 0   -- 0/1
     CHECK (did_asked_knowledge IN (0,1)),
   created_at                TEXT NOT NULL,

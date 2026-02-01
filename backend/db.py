@@ -31,12 +31,8 @@ def init_db() -> None:
         utterance_cols = conn.execute("PRAGMA table_info(utterance)").fetchall()
         if utterance_cols:
             utterance_names = {row["name"] for row in utterance_cols}
-            missing = []
-            for col in ("did_asked_model", "did_asked_knowledge"):
-                if col not in utterance_names:
-                    missing.append(col)
-            for col in missing:
-                conn.execute(f"ALTER TABLE utterance ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+            if "did_asked_knowledge" not in utterance_names:
+                conn.execute("ALTER TABLE utterance ADD COLUMN did_asked_knowledge INTEGER NOT NULL DEFAULT 0")
 
         layout_runs_cols = conn.execute("PRAGMA table_info(layout_runs)").fetchall()
         if layout_runs_cols:

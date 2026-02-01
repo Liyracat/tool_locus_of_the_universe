@@ -313,7 +313,6 @@ PixiJS（Canvas/WebGL）。最初は2Dのみ。
 　　　　・updated_at = 現在日時
 　　・job_type
 　　　　・utterance_role
-　　　　・did_asked_model
 　　　　・did_asked_knowledge
 　　　　・embedding_utterance
 

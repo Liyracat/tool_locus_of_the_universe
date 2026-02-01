@@ -164,7 +164,6 @@ def import_commit(payload: ImportCommitRequest) -> dict:
 
             job_types = [
                 "utterance_role",
-                "did_asked_model",
                 "did_asked_knowledge",
                 "embedding_utterance",
             ]

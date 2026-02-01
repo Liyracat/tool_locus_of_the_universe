@@ -182,6 +182,20 @@ def _prompt_seed(kind: str, utterance: dict) -> str:
     )
 
 
+def _prompt_knowledge_seed(utterance: dict) -> str:
+    return (
+        "以下のテキストから、次のいずれかの形で明示されている内容だけを抽出し、区切り線「---」を設けて列挙してください。\n"
+        "- 定義（AとはBである）\n"
+        "- 因果関係（AするとBになる）\n"
+        "- 一般的な規則・指針（〜すべき／〜するとよい）\n"
+        "- 手順・方法（〜するには、まず〜） \n\n"
+        "他の文章は禁止。該当するものがない場合は何も返さないでください。\n"
+        "日本語で返却してください。\n\n"
+        "contents：\n"
+        f"{utterance['contents']}"
+    )
+
+
 def fetch_next_jobs(limit: int = 10000) -> list[WorkerJob]:
     with get_conn() as conn:
         rows = conn.execute(
@@ -244,19 +258,13 @@ def _process_job(job: WorkerJob) -> None:
         if not utterance_dict:
             raise RuntimeError("utterance is required")
         _handle_utterance_role(job, utterance_dict)
-    elif job.job_type == "did_asked_model":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_seed_extract(
-            job,
-            utterance_dict,
-            "事象・概念に対して定義している箇所",
-            "did_asked_model",
-        )
     elif job.job_type == "did_asked_knowledge":
         if not utterance_dict:
             raise RuntimeError("utterance is required")
-        _handle_seed_extract(job, utterance_dict, "知識と呼べる箇所", "did_asked_knowledge")
+        response = call_ollama(_prompt_knowledge_seed(utterance_dict))
+        text = response.get("response", "") if isinstance(response, dict) else str(response)
+        seeds = _split_seed_lines(text)
+        _insert_seed_results(job, seeds, flag_field="did_asked_knowledge")
     elif job.job_type == "embedding":
         _handle_embedding(job)
     elif job.job_type == "embedding_utterance":
@@ -309,7 +317,10 @@ def _handle_seed_extract(job: WorkerJob, utterance: dict, kind: str, flag_field:
     response = call_ollama(prompt)
     text = response.get("response", "") if isinstance(response, dict) else str(response)
     seeds = _split_seed_lines(text)
+    _insert_seed_results(job, seeds, flag_field=flag_field)
 
+
+def _insert_seed_results(job: WorkerJob, seeds: list[str], flag_field: str | None = None) -> None:
     with get_conn() as conn:
         for seed_body in seeds:
             seed_id = str(uuid.uuid4())
