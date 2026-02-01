@@ -47,6 +47,26 @@ app.add_middleware(
 )
 
 
+def _split_utterance_for_embedding(text: str) -> list[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return []
+    splits: list[str] = []
+    buffer = ""
+    for line in lines:
+        if not buffer:
+            buffer = line
+            continue
+        if len(buffer) <= 10:
+            buffer = f"{buffer}\n{line}"
+        else:
+            splits.append(buffer)
+            buffer = line
+    if buffer:
+        splits.append(buffer)
+    return splits
+
+
 @app.on_event("startup")
 def startup() -> None:
     init_db()
@@ -104,6 +124,40 @@ def import_commit(payload: ImportCommitRequest) -> dict:
             )
             created_ids.append(utterance_id)
 
+            split_segments = _split_utterance_for_embedding(part.contents)
+            for segment in split_segments:
+                split_id = str(uuid.uuid4())
+                conn.execute(
+                    """
+                    INSERT INTO utterance_splits (
+                      utterance_split_id, utterance_id, contents, length, created_at
+                    ) VALUES (
+                      :utterance_split_id, :utterance_id, :contents, :length, datetime('now')
+                    )
+                    """,
+                    {
+                        "utterance_split_id": split_id,
+                        "utterance_id": utterance_id,
+                        "contents": segment,
+                        "length": len(segment),
+                    },
+                )
+                conn.execute(
+                    """
+                    INSERT INTO worker_jobs (
+                      job_id, job_type, target_table, target_id,
+                      status, priority, created_at, updated_at
+                    ) VALUES (
+                      :job_id, 'embedding', 'utterance_split', :target_id,
+                      'queued', 5, datetime('now'), datetime('now')
+                    )
+                    """,
+                    {
+                        "job_id": str(uuid.uuid4()),
+                        "target_id": split_id,
+                    },
+                )
+
             speaker_row = conn.execute(
                 "SELECT canonical_role FROM speakers WHERE speaker_id = :speaker_id",
                 {"speaker_id": part.speaker_id},
@@ -118,7 +172,7 @@ def import_commit(payload: ImportCommitRequest) -> dict:
                 "did_asked_conversion",
                 "did_asked_question",
                 "did_asked_knowledge",
-                "embedding",
+                "embedding_utterance",
             ]
             if canonical_role == "self":
                 job_types.extend(

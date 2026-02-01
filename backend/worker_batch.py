@@ -325,6 +325,8 @@ def _process_job(job: WorkerJob) -> None:
         _handle_seed_extract(job, utterance_dict, "知識と呼べる箇所", "did_asked_knowledge")
     elif job.job_type == "embedding":
         _handle_embedding(job)
+    elif job.job_type == "embedding_utterance":
+        _handle_embedding_utterance(job)
     elif job.job_type == "cluster_body":
         _handle_cluster_body(job)
     else:
@@ -430,7 +432,7 @@ def _handle_seed_extract(job: WorkerJob, utterance: dict, kind: str, flag_field:
                   job_id, job_type, target_table, target_id,
                   status, priority, created_at, updated_at
                 ) VALUES (
-                  :job_id, 'embedding', 'utterance', :target_id,
+                  :job_id, 'embedding_utterance', 'utterance', :target_id,
                   'queued', 10, datetime('now'), datetime('now')
                 )
                 """,
@@ -600,6 +602,14 @@ def _fetch_embedding_source(job: WorkerJob) -> tuple[str, str]:
             if not row:
                 raise RuntimeError("utterance not found for embedding")
             return "utterance", row["contents"]
+        if job.target_table == "utterance_split":
+            row = conn.execute(
+                "SELECT contents FROM utterance_splits WHERE utterance_split_id = :utterance_split_id",
+                {"utterance_split_id": job.target_id},
+            ).fetchone()
+            if not row:
+                raise RuntimeError("utterance_split not found for embedding")
+            return "utterance_split", row["contents"]
         if job.target_table == "seed":
             row = conn.execute(
                 "SELECT title, body FROM seeds WHERE seed_id = :seed_id",
@@ -655,16 +665,16 @@ def _handle_embedding(job: WorkerJob) -> None:
             },
         )
 
-        rows = conn.execute(
-            """
-            SELECT target_type, target_id, dims, vector
-            FROM embeddings
-            WHERE model_name = :model_name AND is_l2_normalized = 1
-            """,
-            {"model_name": EMBED_MODEL_NAME},
-        ).fetchall()
+    rows = conn.execute(
+        """
+        SELECT target_type, target_id, dims, vector
+        FROM embeddings
+        WHERE model_name = :model_name AND is_l2_normalized = 1
+        """,
+        {"model_name": EMBED_MODEL_NAME},
+    ).fetchall()
 
-    if target_type == "utterance":
+    if target_type in ("utterance", "utterance_split"):
         return
 
     rows = [row for row in rows if row["target_type"] in ("seed", "cluster")]
@@ -729,6 +739,69 @@ def _handle_embedding(job: WorkerJob) -> None:
             dst_id=t_id,
             edge_type="near",
             weight=score,
+        )
+
+
+def _handle_embedding_utterance(job: WorkerJob) -> None:
+    if job.target_table != "utterance":
+        raise RuntimeError("embedding_utterance expects target_table=utterance")
+    _ensure_numpy()
+
+    with get_conn() as conn:
+        splits = conn.execute(
+            """
+            SELECT utterance_split_id
+            FROM utterance_splits
+            WHERE utterance_id = :utterance_id
+            """,
+            {"utterance_id": job.target_id},
+        ).fetchall()
+        if not splits:
+            logger.info("embedding_utterance: no splits for %s", job.target_id)
+            return
+
+        split_ids = [row["utterance_split_id"] for row in splits]
+        placeholders = ",".join("?" for _ in split_ids)
+        rows = conn.execute(
+            f"""
+            SELECT target_id, model_name, dims, vector, is_l2_normalized
+            FROM embeddings
+            WHERE target_type = 'utterance_split'
+              AND target_id IN ({placeholders})
+            """,
+            split_ids,
+        ).fetchall()
+
+    if len(rows) != len(split_ids):
+        logger.info("embedding_utterance: missing split embeddings for %s", job.target_id)
+        return
+    if any(row["is_l2_normalized"] != 1 for row in rows):
+        logger.info("embedding_utterance: unnormalized split embeddings for %s", job.target_id)
+        return
+
+    vectors = np.vstack([_decode_vector(row["vector"], row["dims"]) for row in rows]).astype(np.float32)
+    mean_vec = vectors.mean(axis=0)
+    norm = float(np.linalg.norm(mean_vec))
+    if norm > 0:
+        mean_vec = mean_vec / norm
+
+    model_name = rows[0]["model_name"]
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO embeddings (
+              embedding_id, target_type, target_id, model_name, dims, vector, is_l2_normalized, created_at
+            ) VALUES (
+              :embedding_id, 'utterance', :target_id, :model_name, :dims, :vector, 1, datetime('now')
+            )
+            """,
+            {
+                "embedding_id": str(uuid.uuid4()),
+                "target_id": job.target_id,
+                "model_name": model_name,
+                "dims": mean_vec.size,
+                "vector": mean_vec.astype(np.float32).tobytes(),
+            },
         )
 
 

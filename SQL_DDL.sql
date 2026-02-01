@@ -355,6 +355,8 @@ CREATE TABLE IF NOT EXISTS utterance_splits (
   contents                  TEXT NOT NULL,             -- 生テキスト
   length                    INTEGER NOT NULL,          -- 文字数
   created_at                TEXT NOT NULL,
-  FOREIGN KEY (speaker_id) REFERENCES speakers(speaker_id) ON UPDATE CASCADE,
-  FOREIGN KEY (utterance_role_id) REFERENCES utterance_roles(utterance_role_id) ON UPDATE CASCADE
+  FOREIGN KEY (utterance_id) REFERENCES utterance(utterance_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_utterance_splits_utterance
+  ON utterance_splits (utterance_id);

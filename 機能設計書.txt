@@ -284,7 +284,7 @@ PixiJS（Canvas/WebGL）。最初は2Dのみ。
 ---
 
 インポート処理後、以下の対応を行う。
-・utterance_spritsにINSERTするために、各utteranceのcontextを以下の条件で分割する。
+・utterance_splitsにINSERTするために、各utteranceのcontextを以下の条件で分割する。
 　　・改行区切りで分割する
 　　・1区切りあたり10文字以下の場合は、次の区切りに改行区切りで統合する
 ・区切った文字列に対してそれぞれに、utterance_spritsにINSERTする。
