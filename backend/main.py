@@ -102,13 +102,11 @@ def import_commit(payload: ImportCommitRequest) -> dict:
                   utterance_id, thread_id, message_id, chunk_id,
                   speaker_id, conversation_at, contents,
                   utterance_role_id, utterance_role_confidence,
-                  hypothetical, confidence, reinterpretation, resistance, direction,
                   created_at, updated_at
                 ) VALUES (
                   :utterance_id, :thread_id, :message_id, :chunk_id,
                   :speaker_id, :conversation_at, :contents,
                   NULL, NULL,
-                  NULL, NULL, NULL, NULL, NULL,
                   datetime('now'), datetime('now')
                 )
                 """,
@@ -166,24 +164,10 @@ def import_commit(payload: ImportCommitRequest) -> dict:
 
             job_types = [
                 "utterance_role",
-                "did_asked_evaluation",
                 "did_asked_model",
-                "did_asked_premise",
-                "did_asked_conversion",
-                "did_asked_question",
                 "did_asked_knowledge",
                 "embedding_utterance",
             ]
-            if canonical_role == "self":
-                job_types.extend(
-                    [
-                        "hypothetical",
-                        "confidence",
-                        "reinterpretation",
-                        "resistance",
-                        "direction",
-                    ]
-                )
 
             for job_type in job_types:
                 conn.execute(

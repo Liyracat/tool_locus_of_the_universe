@@ -47,26 +47,8 @@ CREATE TABLE IF NOT EXISTS utterance (
   utterance_role_confidence REAL                         -- 0..1
     CHECK (utterance_role_confidence IS NULL OR (utterance_role_confidence >= 0.0 AND utterance_role_confidence <= 1.0)),
   
-  hypothetical              REAL                         -- 0..1
-    CHECK (hypothetical >= 0.0 AND hypothetical <= 1.0),
-  confidence                REAL                         -- 0..1
-    CHECK (confidence >= 0.0 AND confidence <= 1.0),
-  reinterpretation          REAL                         -- 0..1
-    CHECK (reinterpretation >= 0.0 AND reinterpretation <= 1.0),
-  resistance                REAL                         -- 0..1
-    CHECK (resistance >= 0.0 AND resistance <= 1.0),
-  direction                 REAL                         -- -1..1
-    CHECK (direction >= -1.0 AND direction <= 1.0),
-  did_asked_evaluation      INTEGER NOT NULL DEFAULT 0   -- 0/1
-    CHECK (did_asked_evaluation IN (0,1)),
   did_asked_model           INTEGER NOT NULL DEFAULT 0   -- 0/1
     CHECK (did_asked_model IN (0,1)),
-  did_asked_premise         INTEGER NOT NULL DEFAULT 0   -- 0/1
-    CHECK (did_asked_premise IN (0,1)),
-  did_asked_conversion      INTEGER NOT NULL DEFAULT 0   -- 0/1
-    CHECK (did_asked_conversion IN (0,1)),
-  did_asked_question        INTEGER NOT NULL DEFAULT 0   -- 0/1
-    CHECK (did_asked_question IN (0,1)),
   did_asked_knowledge       INTEGER NOT NULL DEFAULT 0   -- 0/1
     CHECK (did_asked_knowledge IN (0,1)),
   created_at                TEXT NOT NULL,
@@ -132,16 +114,6 @@ CREATE TABLE IF NOT EXISTS seeds (
   body          TEXT NOT NULL,                           -- Seed本文
   created_from  TEXT NOT NULL DEFAULT 'utterance'        -- utterance / manual / import など
     CHECK (created_from IN ('utterance','manual','import')),
-  avg_hypothetical              REAL                         -- 0..1
-    CHECK (avg_hypothetical >= 0.0 AND avg_hypothetical <= 1.0),
-  avg_confidence                REAL                         -- 0..1
-    CHECK (avg_confidence >= 0.0 AND avg_confidence <= 1.0),
-  avg_reinterpretation          REAL                         -- 0..1
-    CHECK (avg_reinterpretation >= 0.0 AND avg_reinterpretation <= 1.0),
-  avg_resistance                REAL                         -- 0..1
-    CHECK (avg_resistance >= 0.0 AND avg_resistance <= 1.0),
-  avg_direction                 REAL                         -- -1..1
-    CHECK (avg_direction >= -1.0 AND avg_direction <= 1.0),
   review_status                 TEXT NOT NULL DEFAULT "auto" -- auto / reviewed / edited / rejected
     CHECK (review_status IN ('auto','reviewed','edited','rejected')),
   canonical_seed_id TEXT,
@@ -187,16 +159,6 @@ CREATE TABLE IF NOT EXISTS clusters (
     CHECK (cluster_level IN ('cluster','galaxy')),
   is_archived    INTEGER NOT NULL DEFAULT 0              -- 0/1
     CHECK (is_archived IN (0,1)),
-  avg_hypothetical              REAL                         -- 0..1
-    CHECK (avg_hypothetical >= 0.0 AND avg_hypothetical <= 1.0),
-  avg_confidence                REAL                         -- 0..1
-    CHECK (avg_confidence >= 0.0 AND avg_confidence <= 1.0),
-  avg_reinterpretation          REAL                         -- 0..1
-    CHECK (avg_reinterpretation >= 0.0 AND avg_reinterpretation <= 1.0),
-  avg_resistance                REAL                         -- 0..1
-    CHECK (avg_resistance >= 0.0 AND avg_resistance <= 1.0),
-  avg_direction                 REAL                         -- -1..1
-    CHECK (avg_direction >= -1.0 AND avg_direction <= 1.0),
   created_at     TEXT NOT NULL,
   updated_at     TEXT NOT NULL
 );

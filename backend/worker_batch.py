@@ -173,16 +173,6 @@ def _prompt_utterance_role(utterance: dict, allowed_terms: str) -> str:
     )
 
 
-def _prompt_metric(title: str, utterance: dict, extra: str) -> str:
-    return (
-        "あなたは測定器です。出力は1行のみ。\n"
-        f"1行目：{title}を{extra}で出力。\n"
-        "他の文章は禁止。\n\n"
-        "contents：\n"
-        f"{utterance['contents']}"
-    )
-
-
 def _prompt_seed(kind: str, utterance: dict) -> str:
     return (
         f"以下のテキストから{kind}を、区切り線「---」を設けて列挙してください。\n"
@@ -254,35 +244,6 @@ def _process_job(job: WorkerJob) -> None:
         if not utterance_dict:
             raise RuntimeError("utterance is required")
         _handle_utterance_role(job, utterance_dict)
-    elif job.job_type == "hypothetical":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_metric(job, utterance_dict, "hypothetical", "0.00〜1.00")
-    elif job.job_type == "confidence":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_metric(job, utterance_dict, "confidence", "0.00〜1.00")
-    elif job.job_type == "reinterpretation":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_metric(job, utterance_dict, "reinterpretation", "0.00〜1.00")
-    elif job.job_type == "resistance":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_metric(job, utterance_dict, "resistance", "0.00〜1.00")
-    elif job.job_type == "direction":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_metric(job, utterance_dict, "direction", "-1.00〜1.00")
-    elif job.job_type == "did_asked_evaluation":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_seed_extract(
-            job,
-            utterance_dict,
-            "言い切られている見方・評価について",
-            "did_asked_evaluation",
-        )
     elif job.job_type == "did_asked_model":
         if not utterance_dict:
             raise RuntimeError("utterance is required")
@@ -291,33 +252,6 @@ def _process_job(job: WorkerJob) -> None:
             utterance_dict,
             "事象・概念に対して定義している箇所",
             "did_asked_model",
-        )
-    elif job.job_type == "did_asked_premise":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_seed_extract(
-            job,
-            utterance_dict,
-            "暗黙の前提・思考の土台になっている箇所",
-            "did_asked_premise",
-        )
-    elif job.job_type == "did_asked_conversion":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_seed_extract(
-            job,
-            utterance_dict,
-            "発話者が思考として引っかかった箇所・視点に変化が起きた箇所",
-            "did_asked_conversion",
-        )
-    elif job.job_type == "did_asked_question":
-        if not utterance_dict:
-            raise RuntimeError("utterance is required")
-        _handle_seed_extract(
-            job,
-            utterance_dict,
-            "答えがでていない疑問・まとまらない主張をしている箇所",
-            "did_asked_question",
         )
     elif job.job_type == "did_asked_knowledge":
         if not utterance_dict:
@@ -368,29 +302,6 @@ def _handle_utterance_role(job: WorkerJob, utterance: dict) -> None:
         )
 
 
-def _handle_metric(job: WorkerJob, utterance: dict, field: str, range_hint: str) -> None:
-    title_map = {
-        "hypothetical": "仮説性(どのくらい未確定の状態で発話しているか)",
-        "confidence": "確信度(どのくらい言い切って発話しているか)",
-        "reinterpretation": "変化度(自分の視点・認識にどのくらい変化して発話しているか)",
-        "resistance": "抵抗度(どのくらい拒否感・違和感を抱いて発話しているか)",
-        "direction": "方向性(どのくらい未確定の状態で発話しているか)（過去をマイナス、未来をプラス）",
-    }
-    prompt = _prompt_metric(title_map[field], utterance, range_hint)
-    response = call_ollama(prompt)
-    text = response.get("response", "") if isinstance(response, dict) else str(response)
-    value = _min_number_or_none(text)
-
-    with get_conn() as conn:
-        conn.execute(
-            f"""
-            UPDATE utterance
-            SET {field} = :value,
-                updated_at = datetime('now')
-            WHERE utterance_id = :utterance_id
-            """,
-            {"value": value, "utterance_id": job.target_id},
-        )
 
 
 def _handle_seed_extract(job: WorkerJob, utterance: dict, kind: str, flag_field: str | None = None) -> None:

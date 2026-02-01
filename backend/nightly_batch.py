@@ -289,7 +289,6 @@ def _cluster_merge() -> None:
             _upsert_edge("seed", seed_id, "cluster", target_cluster_id, "part_of", 1.0)
 
         _insert_layout_points_into_cluster_runs(target_cluster_id, seed_ids)
-        _update_cluster_averages(target_cluster_id)
         _update_cluster_embedding(target_cluster_id, embed_map)
         _enqueue_cluster_body(target_cluster_id)
 
@@ -549,40 +548,19 @@ def _archive_cluster(cluster_id: str) -> None:
 
 
 def _create_cluster_from_seeds(seed_ids: list[str], embed_map: dict[str, "np.ndarray"]) -> str:
-    with get_conn() as conn:
-        seed_rows = conn.execute(
-            f"SELECT * FROM seeds WHERE seed_id IN ({','.join('?' for _ in seed_ids)})",
-            seed_ids,
-        ).fetchall()
-
-    def avg(field: str) -> float | None:
-        values = [row[field] for row in seed_rows if row[field] is not None]
-        if not values:
-            return None
-        return float(sum(values) / len(values))
-
     cluster_id = str(uuid.uuid4())
     with get_conn() as conn:
         conn.execute(
             """
             INSERT INTO clusters (
               cluster_id, cluster_name, cluster_overview, cluster_level, is_archived,
-              avg_hypothetical, avg_confidence, avg_reinterpretation, avg_resistance, avg_direction,
               created_at, updated_at
             ) VALUES (
               :cluster_id, NULL, NULL, 'cluster', 0,
-              :avg_hypothetical, :avg_confidence, :avg_reinterpretation, :avg_resistance, :avg_direction,
               datetime('now'), datetime('now')
             )
             """,
-            {
-                "cluster_id": cluster_id,
-                "avg_hypothetical": avg("avg_hypothetical"),
-                "avg_confidence": avg("avg_confidence"),
-                "avg_reinterpretation": avg("avg_reinterpretation"),
-                "avg_resistance": avg("avg_resistance"),
-                "avg_direction": avg("avg_direction"),
-            },
+            {"cluster_id": cluster_id},
         )
 
         vectors = np.vstack([embed_map[sid] for sid in seed_ids]).astype(np.float32)
@@ -784,50 +762,6 @@ def _enqueue_cluster_body(cluster_id: str) -> None:
             )
             """,
             {"job_id": str(uuid.uuid4()), "target_id": cluster_id},
-        )
-
-
-def _update_cluster_averages(cluster_id: str) -> None:
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT s.avg_hypothetical, s.avg_confidence, s.avg_reinterpretation, s.avg_resistance, s.avg_direction
-            FROM edges e
-            JOIN seeds s ON s.seed_id = e.src_id
-            WHERE e.dst_type = 'cluster' AND e.dst_id = :cluster_id
-              AND e.edge_type = 'part_of' AND e.is_active = 1
-            """,
-            {"cluster_id": cluster_id},
-        ).fetchall()
-    if not rows:
-        return
-
-    def avg(field: str) -> float | None:
-        values = [row[field] for row in rows if row[field] is not None]
-        if not values:
-            return None
-        return float(sum(values) / len(values))
-
-    with get_conn() as conn:
-        conn.execute(
-            """
-            UPDATE clusters
-            SET avg_hypothetical = :avg_hypothetical,
-                avg_confidence = :avg_confidence,
-                avg_reinterpretation = :avg_reinterpretation,
-                avg_resistance = :avg_resistance,
-                avg_direction = :avg_direction,
-                updated_at = datetime('now')
-            WHERE cluster_id = :cluster_id
-            """,
-            {
-                "cluster_id": cluster_id,
-                "avg_hypothetical": avg("avg_hypothetical"),
-                "avg_confidence": avg("avg_confidence"),
-                "avg_reinterpretation": avg("avg_reinterpretation"),
-                "avg_resistance": avg("avg_resistance"),
-                "avg_direction": avg("avg_direction"),
-            },
         )
 
 

@@ -32,14 +32,7 @@ def init_db() -> None:
         if utterance_cols:
             utterance_names = {row["name"] for row in utterance_cols}
             missing = []
-            for col in (
-                "did_asked_evaluation",
-                "did_asked_model",
-                "did_asked_premise",
-                "did_asked_conversion",
-                "did_asked_question",
-                "did_asked_knowledge",
-            ):
+            for col in ("did_asked_model", "did_asked_knowledge"):
                 if col not in utterance_names:
                     missing.append(col)
             for col in missing:

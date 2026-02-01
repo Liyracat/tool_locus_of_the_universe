@@ -43,89 +43,6 @@ f"{utterance['contents']}"
 　　・response内で一番最初に出てきたutterance_role_nameに完全一致するutterance_role_idを、utterance.utterance_role_idに格納
 　　・response内の数値のうち、最小値をutterance.utterance_role_confidenceに格納。
 
-【hypothetical】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="あなたは測定器です。出力は1行のみ。\n"
-"1行目：仮説性(どのくらい未確定の状態で発話しているか)を0.00〜1.00で出力。\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内の数値のうち、最小値をutterance.hypotheticalに格納。
-
-【confidence】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="あなたは測定器です。出力は1行のみ。\n"
-"1行目：確信度(どのくらい言い切って発話しているか)を0.00〜1.00で出力。\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内の数値のうち、最小値をutterance.confidenceに格納。
-
-【reinterpretation】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="あなたは測定器です。出力は1行のみ。\n"
-"1行目：変化度(自分の視点・認識にどのくらい変化して発話しているか)を0.00〜1.00で出力。\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内の数値のうち、最小値をutterance.reinterpretationに格納。
-
-【resistance】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="あなたは測定器です。出力は1行のみ。\n"
-"1行目：抵抗度(どのくらい拒否感・違和感を抱いて発話しているか)を0.00〜1.00で出力。\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内の数値のうち、最小値をutterance.resistanceに格納。
-
-【direction】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="あなたは測定器です。出力は1行のみ。\n"
-"1行目：方向性(どのくらい未確定の状態で発話しているか)を-1.00〜1.00で出力。（過去をマイナス、未来をプラス）\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内の数値のうち、最小値をutterance.directionに格納。
-
-【did_asked_evaluation】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="以下のテキストから言い切られている見方・評価について、区切り線「---」を設けて列挙してください。\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内を「---」で区切り、それらをseedsにINSERTする
-　　　　・seed_id = 生成UUID
-　　　　・seed_type = seed
-　　　　・body = 区切ったテキスト
-　　　　・created_from = utterance
-　　　　・review_status = auto
-　　　　・created_at = 現在時刻
-　　　　・updated_at = 現在時刻
-　　・utterance_seedsにINSERTする
-　　　　・utterance_id = 読み込ませたutteranceのutterance_id
-　　　　・seed_id = 生成したseed_id
-　　　　・relation_type = derived_from
-　　　　・created_at = 現在時刻
-　　・worker_jobsにINSERTする
-　　　　・job_id = 生成UUID
-　　　　・job_type = embedding
-　　　　・target_table = utterance
-　　　　・target_id = 該当utterance_id
-　　　　・status = queued
-　　　　・priority = 10
-　　　　・created_at = 現在日時
-　　　　・updated_at = 現在日時
-　　・utterancesをUPDATEする
-　　　　・did_asked_evaluation = 1
-　　　　・updated_at = 現在日時
-
 【did_asked_model】
 ・MODEL_NAME = "gpt-oss:20b"
 ・prompt ="以下のテキストから事象・概念に対して定義している箇所を、区切り線「---」を設けて列挙してください。\n"
@@ -157,105 +74,6 @@ f"{utterance['contents']}"
 　　　　・updated_at = 現在日時
 　　・utterancesをUPDATEする
 　　　　・did_asked_model = 1
-　　　　・updated_at = 現在日時
-
-【did_asked_premise】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="以下のテキストから暗黙の前提・思考の土台になっている箇所を、区切り線「---」を設けて列挙してください。\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内を「---」で区切り、それらをseedsにINSERTする
-　　　　・seed_id = 生成UUID
-　　　　・seed_type = seed
-　　　　・body = 区切ったテキスト
-　　　　・created_from = utterance
-　　　　・review_status = auto
-　　　　・created_at = 現在時刻
-　　　　・updated_at = 現在時刻
-　　・utterance_seedsにINSERTする
-　　　　・utterance_id = 読み込ませたutteranceのutterance_id
-　　　　・seed_id = 生成したseed_id
-　　　　・relation_type = derived_from
-　　　　・created_at = 現在時刻
-　　・worker_jobsにINSERTする
-　　　　・job_id = 生成UUID
-　　　　・job_type = embedding
-　　　　・target_table = utterance
-　　　　・target_id = 該当utterance_id
-　　　　・status = queued
-　　　　・priority = 10
-　　　　・created_at = 現在日時
-　　　　・updated_at = 現在日時
-　　・utterancesをUPDATEする
-　　　　・did_asked_premise = 1
-　　　　・updated_at = 現在日時
-
-【did_asked_conversion】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="以下のテキストから発話者が思考として引っかかった箇所・視点に変化が起きた箇所を、区切り線「---」を設けて列挙してください。\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内を「---」で区切り、それらをseedsにINSERTする
-　　　　・seed_id = 生成UUID
-　　　　・seed_type = seed
-　　　　・body = 区切ったテキスト
-　　　　・created_from = utterance
-　　　　・review_status = auto
-　　　　・created_at = 現在時刻
-　　　　・updated_at = 現在時刻
-　　・utterance_seedsにINSERTする
-　　　　・utterance_id = 読み込ませたutteranceのutterance_id
-　　　　・seed_id = 生成したseed_id
-　　　　・relation_type = derived_from
-　　　　・created_at = 現在時刻
-　　・worker_jobsにINSERTする
-　　　　・job_id = 生成UUID
-　　　　・job_type = embedding
-　　　　・target_table = utterance
-　　　　・target_id = 該当utterance_id
-　　　　・status = queued
-　　　　・priority = 10
-　　　　・created_at = 現在日時
-　　　　・updated_at = 現在日時
-　　・utterancesをUPDATEする
-　　　　・did_asked_conversion = 1
-　　　　・updated_at = 現在日時
-
-【did_asked_question】
-・MODEL_NAME = "gpt-oss:20b"
-・prompt ="以下のテキストから答えがでていない疑問・まとまらない主張をしている箇所を、区切り線「---」を設けて列挙してください。\n"
-"他の文章は禁止。\n\n"
-"contents：\n"
-f"{utterance['contents']}"
-・response受け取り後
-　　・response内を「---」で区切り、それらをseedsにINSERTする
-　　　　・seed_id = 生成UUID
-　　　　・seed_type = seed
-　　　　・body = 区切ったテキスト
-　　　　・created_from = utterance
-　　　　・review_status = auto
-　　　　・created_at = 現在時刻
-　　　　・updated_at = 現在時刻
-　　・utterance_seedsにINSERTする
-　　　　・utterance_id = 読み込ませたutteranceのutterance_id
-　　　　・seed_id = 生成したseed_id
-　　　　・relation_type = derived_from
-　　　　・created_at = 現在時刻
-　　・worker_jobsにINSERTする
-　　　　・job_id = 生成UUID
-　　　　・job_type = embedding
-　　　　・target_table = utterance
-　　　　・target_id = 該当utterance_id
-　　　　・status = queued
-　　　　・priority = 10
-　　　　・created_at = 現在日時
-　　　　・updated_at = 現在日時
-　　・utterancesをUPDATEする
-　　　　・did_asked_question = 1
 　　　　・updated_at = 現在日時
 
 【did_asked_knowledge】
@@ -417,11 +235,6 @@ f"{連結したテキスト}"
 　　　　　　　　　　・cluster_id = 生成UUID
 　　　　　　　　　　・cluster_level = cluster
 　　　　　　　　　　・is_archived = 0
-　　　　　　　　　　・avg_hypothetical = 下位も含めてグループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
-　　　　　　　　　　・avg_confidence = 下位も含めてグループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
-　　　　　　　　　　・avg_reinterpretation = 下位も含めてグループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
-　　　　　　　　　　・avg_resistance = 下位も含めてグループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
-　　　　　　　　　　・avg_direction = 下位も含めてグループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
 　　　　　　　　　　・created_at = 現在時刻
 　　　　　　　　　　・updated_at = 現在時刻
 　　　　　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにINSERTする
@@ -527,13 +340,6 @@ f"{連結したテキスト}"
 　　　　　　　　　　・is_active = 1
 　　　　　　　　　　・created_at = 現在時刻
 　　　　　　・統合先のclusterに対して以下の処理を行う。
-　　　　　　　　・clustersをUPDATEする
-　　　　　　　　　　・avg_hypothetical = 下位も含めてグループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
-　　　　　　　　　　・avg_confidence = 下位も含めてグループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
-　　　　　　　　　　・avg_reinterpretation = 下位も含めてグループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
-　　　　　　　　　　・avg_resistance = 下位も含めてグループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
-　　　　　　　　　　・avg_direction = 下位も含めてグループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
-　　　　　　　　　　・updated_at = 現在時刻
 　　　　　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにUPDATEする
 　　　　　　　　　　・vector = 所属するseedのembeddings.vectorの平均
 　　　　　　　　・worker_jobsにINSERTする。
@@ -553,11 +359,6 @@ f"{連結したテキスト}"
 　　　　　　・cluster_id = 生成UUID
 　　　　　　・cluster_level = cluster
 　　　　　　・is_archived = 0
-　　　　　　・avg_hypothetical = 下位も含めてグループ内に所属しているseedのうち、seeds.hypotheticalに値があるものに対する平均
-　　　　　　・avg_confidence = 下位も含めてグループ内に所属しているseedのうち、seeds.confidenceに値があるものに対する平均
-　　　　　　・avg_reinterpretation = 下位も含めてグループ内に所属しているseedのうち、seeds.reinterpretationに値があるものに対する平均
-　　　　　　・avg_resistance = 下位も含めてグループ内に所属しているseedのうち、seeds.resistanceに値があるものに対する平均
-　　　　　　・avg_direction = 下位も含めてグループ内に所属しているseedのうち、seeds.directionに値があるものに対する平均
 　　　　　　・created_at = 現在時刻
 　　　　　　・updated_at = 現在時刻
 　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにINSERTする
