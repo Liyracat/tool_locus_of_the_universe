@@ -75,4 +75,5 @@ class WorkerJob(BaseModel):
     target_table: str
     target_id: str
     status: str
+    error: Optional[str] = None
     updated_at: str

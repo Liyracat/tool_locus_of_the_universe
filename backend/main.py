@@ -272,13 +272,21 @@ def list_worker_jobs() -> List[WorkerJob]:
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT job_id, job_type, target_table, target_id, status,
+            SELECT job_id, job_type, target_table, target_id, status, error,
                    updated_at
             FROM worker_jobs
             ORDER BY updated_at DESC
             """
         ).fetchall()
     return [WorkerJob(**dict(row)) for row in rows]
+
+
+@app.delete("/worker-jobs/success", status_code=200)
+def delete_success_jobs() -> dict:
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM worker_jobs WHERE status = 'success'")
+        deleted = cur.rowcount or 0
+    return {"deleted": deleted}
 
 
 @app.post("/worker-jobs/{job_id}/retry", status_code=200)

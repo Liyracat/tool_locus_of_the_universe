@@ -55,6 +55,7 @@ export type WorkerJob = {
   target_table: string;
   target_id: string;
   status: string;
+  error?: string | null;
   updated_at: string;
 };
 
@@ -161,6 +162,11 @@ export const api = {
   },
   listWorkerJobs() {
     return request<WorkerJob[]>("/api/worker-jobs");
+  },
+  deleteSuccessWorkerJobs() {
+    return request<{ deleted: number }>("/api/worker-jobs/success", {
+      method: "DELETE",
+    });
   },
   retryWorkerJob(job_id: string) {
     return request<{ status: string }>(`/api/worker-jobs/${job_id}/retry`, {

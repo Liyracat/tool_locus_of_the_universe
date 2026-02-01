@@ -92,6 +92,17 @@ export default function SettingsPage() {
     }
   };
 
+  const deleteSuccessJobs = async () => {
+    setStatus(null);
+    try {
+      const result = await api.deleteSuccessWorkerJobs();
+      setStatus(`successのジョブを${result.deleted}件削除しました`);
+      await loadAll();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "successジョブ削除に失敗しました");
+    }
+  };
+
   const deleteSpeaker = async (speaker_id: string) => {
     setStatus(null);
     try {
@@ -299,6 +310,9 @@ export default function SettingsPage() {
       <section className="panel">
         <div className="panel-row">
           <div className="section-title">worker_jobs 一覧</div>
+          <button type="button" className="button tiny ghost" onClick={deleteSuccessJobs}>
+            successを削除
+          </button>
         </div>
         <div className="table-wrapper">
           <table className="table">
@@ -308,6 +322,7 @@ export default function SettingsPage() {
                 <th>job_type</th>
                 <th>target</th>
                 <th>status</th>
+                <th>error</th>
                 <th>updated_at</th>
                 <th>操作</th>
               </tr>
@@ -319,6 +334,7 @@ export default function SettingsPage() {
                   <td>{job.job_type}</td>
                   <td>{job.target_table}:{job.target_id}</td>
                   <td>{job.status}</td>
+                  <td>{job.error ?? ""}</td>
                   <td>{job.updated_at}</td>
                   <td>
                     {(job.status === "processing" || job.status === "failed") && (
@@ -331,7 +347,7 @@ export default function SettingsPage() {
               ))}
               {!workerJobs.length && (
                 <tr>
-                  <td colSpan={6} className="empty-cell">
+                  <td colSpan={7} className="empty-cell">
                     worker_jobs がありません。
                   </td>
                 </tr>

@@ -210,8 +210,8 @@ CREATE INDEX IF NOT EXISTS idx_clusters_level
 -- =========================================
 CREATE TABLE IF NOT EXISTS embeddings (
   embedding_id       TEXT PRIMARY KEY,                  -- UUID
-  target_type        TEXT NOT NULL                      -- utterance / seed / cluster
-    CHECK (target_type IN ('utterance','seed','cluster')),
+  target_type        TEXT NOT NULL                      -- utterance / seed / cluster / utterance_split
+    CHECK (target_type IN ('utterance','seed','cluster','utterance_split')),
   target_id          TEXT NOT NULL,
   model_name         TEXT NOT NULL,                     -- 例: paraphrase-multilingual
   dims               INTEGER NOT NULL,
@@ -344,4 +344,17 @@ CREATE TABLE IF NOT EXISTS all_seed_info (
     median_seed_distance REAL,             -- 近傍距離の中央値
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+-- =========================================
+-- utterance_splits
+-- =========================================
+CREATE TABLE IF NOT EXISTS utterance_splits (
+  utterance_split_id        TEXT PRIMARY KEY,          -- UUID
+  utterance_id              TEXT NOT NULL,             -- UUID
+  contents                  TEXT NOT NULL,             -- 生テキスト
+  length                    INTEGER NOT NULL,          -- 文字数
+  created_at                TEXT NOT NULL,
+  FOREIGN KEY (speaker_id) REFERENCES speakers(speaker_id) ON UPDATE CASCADE,
+  FOREIGN KEY (utterance_role_id) REFERENCES utterance_roles(utterance_role_id) ON UPDATE CASCADE
 );

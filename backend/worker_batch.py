@@ -80,9 +80,9 @@ def call_ollama_embedding(text: str, model_name: str | None = None) -> list[floa
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    logger.info("Ollama embedding request length=%s", len(text))
+    logger.info("Ollama embedding request length=%s text=%s", len(text), text)
     try:
-        with urllib.request.urlopen(req, timeout=300000) as resp:
+        with urllib.request.urlopen(req, timeout=600) as resp:
             body = resp.read().decode("utf-8")
             logger.info("Ollama embedding response status=%s", resp.status)
             data = json.loads(body)
@@ -186,7 +186,7 @@ def _prompt_metric(title: str, utterance: dict, extra: str) -> str:
 def _prompt_seed(kind: str, utterance: dict) -> str:
     return (
         f"以下のテキストから{kind}を、区切り線「---」を設けて列挙してください。\n"
-        "他の文章は禁止。\n\n"
+        "他の文章は禁止。該当するものがない場合は何も返さないでください。\n\n"
         "contents：\n"
         f"{utterance['contents']}"
     )
