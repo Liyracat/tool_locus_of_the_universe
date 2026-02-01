@@ -32,6 +32,8 @@ export default function ImportPage() {
     try {
       const result = await api.commitImport(preview);
       setStatus(`保存完了: thread_id=${result.thread_id}`);
+      setRawText("");
+      setPreview(null);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "保存に失敗しました");
     } finally {
