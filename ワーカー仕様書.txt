@@ -371,6 +371,20 @@ f"{utterance['contents']}"
 　　　　・created_at = 現在時刻
 　　　　・updated_at = 現在時刻
 
+【embedding_utterance】
+・utterance_idに紐づいているutterance_splitsを列挙する
+・各utterance_splitsに紐づいているembeddingsを列挙する
+・全てのutterance_splitsにembeddingsが紐づいている、かつ全てのembeddingsがis_l2_normalized = 1の場合、該当するすべてのvectorの平均を取り、L2正規化を行う。
+・embeddingsにINSERTする
+　　・embedding_id = 生成UUID
+　　・target_type = utterance
+　　・target_id = work_jobs.target_id
+　　・model_name = 任意のutterance_splitsに紐づいているembeddings.model_name
+　　・dims = 任意のutterance_splitsに紐づいているembeddings.model_name
+　　・vector = 平均化＆L2正規化した値
+　　・is_l2_normalized = 1
+　　・created_at = 現在時刻
+
 【cluster_body】
 ・edgesのうち、dst_type = cluster、dst_id = worker_jobs.target_id、edge_type = part_ofに該当するseedのcontensを改行区切りで連結する。
 ・MODEL_NAME = "gpt-oss:20b"

@@ -284,6 +284,24 @@ PixiJS（Canvas/WebGL）。最初は2Dのみ。
 ---
 
 インポート処理後、以下の対応を行う。
+・utterance_spritsにINSERTするために、各utteranceのcontextを以下の条件で分割する。
+　　・改行区切りで分割する
+　　・1区切りあたり10文字以下の場合は、次の区切りに改行区切りで統合する
+・区切った文字列に対してそれぞれに、utterance_spritsにINSERTする。
+　　・utterance_split_id = 生成UUID
+　　・utterance_id = 該当utterance_id
+　　・contents = 先ほど区切った文字列
+　　・length = 区切った文字列の文字数
+　　・created_at = 現在時刻
+・worker_jobsに対してINSERT操作を行う。
+　　・job_id = 生成UUID
+　　・target_table = utterance_split
+　　・target_id = 該当utterance_split_id
+　　・status = queued
+　　・job_type = embedding
+　　・priority = 5
+　　・created_at = 現在日時
+　　・updated_at = 現在日時
 ・worker_jobsに対してINSERT操作をjob_type違いで13回(または8回)行う。
 　　・共通
 　　　　・job_id = 生成UUID
@@ -306,5 +324,5 @@ PixiJS（Canvas/WebGL）。最初は2Dのみ。
 　　　　・did_asked_conversion
 　　　　・did_asked_question
 　　　　・did_asked_knowledge
-　　　　・embedding
+　　　　・embedding_utterance
 
