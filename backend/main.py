@@ -343,6 +343,18 @@ def purge_unused_data() -> dict:
     with get_conn() as conn:
         counts: dict[str, int] = {}
 
+        cur = conn.execute(
+            """
+            DELETE FROM utterance
+            WHERE did_asked_knowledge = 1
+              AND NOT EXISTS (
+                SELECT 1 FROM utterance_seeds us
+                WHERE us.utterance_id = utterance.utterance_id
+              )
+            """
+        )
+        counts["utterance_orphans"] = cur.rowcount or 0
+
         cur = conn.execute("DELETE FROM worker_jobs WHERE status = 'success'")
         counts["worker_jobs"] = cur.rowcount or 0
 
@@ -374,6 +386,22 @@ def purge_unused_data() -> dict:
             """
         )
         counts["embeddings_cluster"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM embeddings
+            WHERE target_type = 'utterance'
+              AND target_id NOT IN (SELECT utterance_id FROM utterance)
+            """
+        )
+        counts["embeddings_utterance"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM embeddings
+            WHERE target_type = 'utterance_split'
+              AND target_id NOT IN (SELECT utterance_split_id FROM utterance_splits)
+            """
+        )
+        counts["embeddings_utterance_split"] = cur.rowcount or 0
 
         cur = conn.execute("DELETE FROM layout_runs WHERE is_active = 0")
         counts["layout_runs_inactive"] = cur.rowcount or 0
@@ -404,6 +432,14 @@ def purge_unused_data() -> dict:
             """
         )
         counts["layout_points_cluster"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM layout_points
+            WHERE target_type = 'utterance'
+              AND target_id NOT IN (SELECT utterance_id FROM utterance)
+            """
+        )
+        counts["layout_points_utterance"] = cur.rowcount or 0
 
         cur = conn.execute("DELETE FROM edges WHERE is_active = 0")
         counts["edges_inactive"] = cur.rowcount or 0
