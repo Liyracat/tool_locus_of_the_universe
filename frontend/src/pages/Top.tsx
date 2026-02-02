@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, MapLink, MapNode, MapResponse, UtteranceRole } from "../api";
+import { api, MapLink, MapNode, MapResponse, SeedMergeCandidate, UtteranceRole } from "../api";
 import GalaxyMapCanvas, { GalaxyLink, GalaxyNode } from "../components/GalaxyMapCanvas";
 
 const buildMockMap = (): MapResponse => {
@@ -187,6 +187,9 @@ export default function TopPage() {
   const [breadcrumbStack, setBreadcrumbStack] = useState<
     Array<{ label: string; view: "global" | "cluster"; cluster_id?: string | null }>
   >([{ label: "全体ビュー", view: "global" }]);
+  const [mergeCandidates, setMergeCandidates] = useState<SeedMergeCandidate[]>([]);
+  const [mergePanelOpen, setMergePanelOpen] = useState(false);
+  const [selectedMergeCandidateId, setSelectedMergeCandidateId] = useState<string | null>(null);
   const [editState, setEditState] = useState<{
     seed_type?: string;
     review_status?: string;
@@ -287,6 +290,9 @@ export default function TopPage() {
         body: String(meta["body"] ?? ""),
         canonical_seed_id: String(meta["canonical_seed_id"] ?? ""),
       });
+      setMergeCandidates([]);
+      setMergePanelOpen(false);
+      setSelectedMergeCandidateId(null);
       return;
     }
     if (node.node_type === "cluster" || node.node_type === "galaxy") {
@@ -324,6 +330,18 @@ export default function TopPage() {
         breadcrumbStack[breadcrumbStack.length - 1]?.view ?? "global",
         breadcrumbStack[breadcrumbStack.length - 1]?.cluster_id ?? null
       );
+      if (selectedMergeCandidateId) {
+        const rejectIds = mergeCandidates
+          .map((item) => item.candidate_id)
+          .filter((id) => id !== selectedMergeCandidateId);
+        await api.resolveSeedMergeCandidates({
+          merged_candidate_id: selectedMergeCandidateId,
+          reject_candidate_ids: rejectIds,
+        });
+        setMergeCandidates([]);
+        setMergePanelOpen(false);
+        setSelectedMergeCandidateId(null);
+      }
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "保存に失敗しました");
     }
@@ -347,6 +365,36 @@ export default function TopPage() {
       );
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "更新に失敗しました");
+    }
+  };
+
+  const loadMergeCandidates = async () => {
+    if (!selectedNode || selectedNode.node_type !== "seed") return;
+    try {
+      const list = await api.listSeedMergeCandidates(selectedNode.id);
+      setMergeCandidates(list);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "統合候補の取得に失敗しました");
+    }
+  };
+
+  const handleMergeSelect = (candidate: SeedMergeCandidate) => {
+    setEditState((prev) => ({
+      ...prev,
+      canonical_seed_id: candidate.seed_a_id,
+    }));
+    setSelectedMergeCandidateId(candidate.candidate_id);
+  };
+
+  const handleMergeReject = async (candidate: SeedMergeCandidate) => {
+    try {
+      await api.updateSeedMergeCandidate(candidate.candidate_id, "rejected");
+      setMergeCandidates((prev) => prev.filter((item) => item.candidate_id !== candidate.candidate_id));
+      if (selectedMergeCandidateId === candidate.candidate_id) {
+        setSelectedMergeCandidateId(null);
+      }
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "却下に失敗しました");
     }
   };
 
@@ -470,8 +518,50 @@ export default function TopPage() {
                     onChange={(event) =>
                       setEditState((prev) => ({ ...prev, canonical_seed_id: event.target.value }))
                     }
+                    onFocus={() => {
+                      if (!mergePanelOpen) {
+                        setMergePanelOpen(true);
+                        void loadMergeCandidates();
+                      }
+                    }}
                   />
                 </div>
+                {mergePanelOpen && (
+                  <div className="merge-candidates">
+                    <div className="merge-title">統合候補</div>
+                    {mergeCandidates.length === 0 ? (
+                      <div className="merge-empty">候補がありません。</div>
+                    ) : (
+                      <div className="merge-list">
+                        {mergeCandidates.map((item) => (
+                          <div className="merge-row" key={item.candidate_id}>
+                            <div className="merge-body">{item.body ?? ""}</div>
+                            <div className="merge-meta">
+                              {item.reason}
+                              {typeof item.similarity === "number" ? ` (${item.similarity.toFixed(3)})` : ""}
+                            </div>
+                            <div className="merge-actions">
+                              <button
+                                type="button"
+                                className="button tiny"
+                                onClick={() => handleMergeSelect(item)}
+                              >
+                                統合
+                              </button>
+                              <button
+                                type="button"
+                                className="button tiny ghost"
+                                onClick={() => handleMergeReject(item)}
+                              >
+                                却下
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {editState.review_status === "auto" && (
                   <div className="panel-actions">
                     <button

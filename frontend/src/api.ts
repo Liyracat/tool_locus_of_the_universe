@@ -91,6 +91,15 @@ export type MapResponse = {
   match?: Record<string, { matched: boolean; score?: number }>;
 };
 
+export type SeedMergeCandidate = {
+  candidate_id: string;
+  seed_a_id: string;
+  seed_b_id: string;
+  reason: string;
+  similarity?: number | null;
+  body?: string | null;
+};
+
 export const api = {
   previewImport(raw_text: string) {
     return request<ImportPreviewResponse>("/api/import/preview", {
@@ -223,6 +232,22 @@ export const api = {
         }),
       }
     );
+  },
+  listSeedMergeCandidates(seed_b_id: string) {
+    const query = new URLSearchParams({ seed_b_id });
+    return request<SeedMergeCandidate[]>(`/api/seed-merge-candidates?${query.toString()}`);
+  },
+  updateSeedMergeCandidate(candidate_id: string, status: "proposed" | "merged" | "rejected") {
+    return request<{ candidate_id: string; status: string }>(`/api/seed-merge-candidates/${candidate_id}`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    });
+  },
+  resolveSeedMergeCandidates(payload: { merged_candidate_id: string; reject_candidate_ids: string[] }) {
+    return request<{ status: string }>(`/api/seed-merge-candidates/resolve`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
   getMap(params?: {
     view?: "global" | "cluster";

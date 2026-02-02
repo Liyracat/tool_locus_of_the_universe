@@ -93,3 +93,21 @@ class SeedUpdate(BaseModel):
 class ClusterUpdate(BaseModel):
     cluster_overview: Optional[str] = None
     cluster_level: str
+
+
+class SeedMergeCandidateItem(BaseModel):
+    candidate_id: str
+    seed_a_id: str
+    seed_b_id: str
+    reason: str
+    similarity: Optional[float] = None
+    body: Optional[str] = None
+
+
+class SeedMergeCandidateStatusUpdate(BaseModel):
+    status: str
+
+
+class SeedMergeResolveRequest(BaseModel):
+    merged_candidate_id: str
+    reject_candidate_ids: List[str] = []

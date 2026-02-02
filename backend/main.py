@@ -21,6 +21,9 @@ try:
         UtteranceUpdate,
         SeedUpdate,
         ClusterUpdate,
+        SeedMergeCandidateItem,
+        SeedMergeCandidateStatusUpdate,
+        SeedMergeResolveRequest,
     )
     from .import_splitter import split_import_text
 except ImportError:
@@ -39,6 +42,9 @@ except ImportError:
         UtteranceUpdate,
         SeedUpdate,
         ClusterUpdate,
+        SeedMergeCandidateItem,
+        SeedMergeCandidateStatusUpdate,
+        SeedMergeResolveRequest,
     )
     from import_splitter import split_import_text
 
@@ -479,6 +485,78 @@ def update_cluster(cluster_id: str, payload: ClusterUpdate) -> dict:
     if not row:
         raise HTTPException(status_code=404, detail="cluster not found")
     return dict(row)
+
+
+@app.get("/seed-merge-candidates", response_model=List[SeedMergeCandidateItem])
+def list_seed_merge_candidates(seed_b_id: str) -> List[SeedMergeCandidateItem]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.candidate_id, c.seed_a_id, c.seed_b_id, c.reason, c.similarity,
+                   s.body
+            FROM seed_merge_candidates c
+            JOIN seeds s ON s.seed_id = c.seed_a_id
+            WHERE c.seed_b_id = :seed_b_id
+              AND c.status = 'proposed'
+              AND (s.canonical_seed_id IS NULL OR s.canonical_seed_id = '')
+            ORDER BY c.created_at ASC
+            """,
+            {"seed_b_id": seed_b_id},
+        ).fetchall()
+    return [SeedMergeCandidateItem(**dict(row)) for row in rows]
+
+
+@app.put("/seed-merge-candidates/{candidate_id}", response_model=dict)
+def update_seed_merge_candidate_status(candidate_id: str, payload: SeedMergeCandidateStatusUpdate) -> dict:
+    if payload.status not in ("proposed", "merged", "rejected"):
+        raise HTTPException(status_code=400, detail="invalid status")
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE seed_merge_candidates
+            SET status = :status,
+                updated_at = datetime('now')
+            WHERE candidate_id = :candidate_id
+            """,
+            {"candidate_id": candidate_id, "status": payload.status},
+        )
+        row = conn.execute(
+            """
+            SELECT candidate_id, seed_a_id, seed_b_id, status, updated_at
+            FROM seed_merge_candidates
+            WHERE candidate_id = :candidate_id
+            """,
+            {"candidate_id": candidate_id},
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="candidate not found")
+    return dict(row)
+
+
+@app.post("/seed-merge-candidates/resolve", response_model=dict)
+def resolve_seed_merge_candidates(payload: SeedMergeResolveRequest) -> dict:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE seed_merge_candidates
+            SET status = 'merged',
+                updated_at = datetime('now')
+            WHERE candidate_id = :candidate_id
+            """,
+            {"candidate_id": payload.merged_candidate_id},
+        )
+        if payload.reject_candidate_ids:
+            placeholders = ",".join("?" for _ in payload.reject_candidate_ids)
+            conn.execute(
+                f"""
+                UPDATE seed_merge_candidates
+                SET status = 'rejected',
+                    updated_at = datetime('now')
+                WHERE candidate_id IN ({placeholders})
+                """,
+                payload.reject_candidate_ids,
+            )
+    return {"status": "ok"}
 
 
 def _build_in_clause(values: List[str], prefix: str) -> tuple[str, dict]:

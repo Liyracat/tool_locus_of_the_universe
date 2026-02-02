@@ -518,6 +518,8 @@ def _seed_merge_candidates() -> None:
             """
             SELECT seed_id, body, created_at, updated_at
             FROM seeds
+            WHERE (review_status IS NULL OR review_status != 'rejected')
+              AND (canonical_seed_id IS NULL OR canonical_seed_id = '')
             """
         ).fetchall()
 
@@ -529,6 +531,10 @@ def _seed_merge_candidates() -> None:
         }
         for row in seed_rows
     }
+
+    allowed_ids = {seed_id for _, seed_id in ids if seed_id in seed_meta}
+    if not allowed_ids:
+        return
 
     index = _build_faiss_index(matrix)
     k = min(21, len(ids))
@@ -545,6 +551,8 @@ def _seed_merge_candidates() -> None:
     candidates: dict[tuple[str, str], dict[str, float | None]] = {}
 
     for idx, (_, seed_id) in enumerate(ids):
+        if seed_id not in allowed_ids:
+            continue
         vec = matrix[idx : idx + 1]
         scores, neighbors = index.search(vec, k)
         for score, n_idx in zip(scores[0].tolist(), neighbors[0].tolist()):
@@ -552,6 +560,8 @@ def _seed_merge_candidates() -> None:
                 continue
             _, other_id = ids[n_idx]
             if other_id == seed_id:
+                continue
+            if other_id not in allowed_ids:
                 continue
             a_id, b_id = pick_a_b(seed_id, other_id)
             if a_id == b_id:
