@@ -361,19 +361,17 @@ def _insert_seed_results(job: WorkerJob, seeds: list[str], flag_field: str | Non
                 """,
                 {"utterance_id": job.target_id, "seed_id": seed_id},
             )
-
-        if seeds:
             conn.execute(
                 """
                 INSERT INTO worker_jobs (
                   job_id, job_type, target_table, target_id,
                   status, priority, created_at, updated_at
                 ) VALUES (
-                  :job_id, 'embedding_utterance', 'utterance', :target_id,
+                  :job_id, 'embedding', 'seed', :target_id,
                   'queued', 10, datetime('now'), datetime('now')
                 )
                 """,
-                {"job_id": str(uuid.uuid4()), "target_id": job.target_id},
+                {"job_id": str(uuid.uuid4()), "target_id": seed_id},
             )
 
         if flag_field:

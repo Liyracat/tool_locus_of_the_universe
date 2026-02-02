@@ -71,8 +71,8 @@ f"{utterance['contents']}"
 　　・worker_jobsにINSERTする
 　　　　・job_id = 生成UUID
 　　　　・job_type = embedding
-　　　　・target_table = utterance
-　　　　・target_id = 該当utterance_id
+　　　　・target_table = seed
+　　　　・target_id = 生成seed_id
 　　　　・status = queued
 　　　　・priority = 10
 　　　　・created_at = 現在日時
