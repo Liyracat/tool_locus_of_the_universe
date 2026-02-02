@@ -468,7 +468,7 @@ export default function GalaxyMapCanvas({
         phase: Math.random() * Math.PI * 2,
       });
 
-      if (node.label) {
+      if (node.label && node.node_type !== "utterance") {
         const labelText = new Text({ text: node.label, style: labelStyle });
         labelText.x = node.x + node.radius + 6;
         labelText.y = node.y - node.radius - 6;

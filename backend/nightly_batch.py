@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import time
 import uuid
 from pathlib import Path
@@ -608,10 +609,10 @@ def _create_cluster_from_seeds(seed_ids: list[str], embed_map: dict[str, "np.nda
             },
         )
 
-        _insert_layout_points_for_cluster(layout_id, cluster_id, seed_ids)
+        _insert_layout_points_for_cluster(layout_id, cluster_id, seed_ids, conn=conn)
 
         for seed_id in seed_ids:
-            _upsert_edge("seed", seed_id, "cluster", cluster_id, "part_of", 1.0)
+            _upsert_edge("seed", seed_id, "cluster", cluster_id, "part_of", 1.0, conn=conn)
 
     return cluster_id
 
@@ -636,48 +637,62 @@ def _seed_ids_from_clusters(cluster_ids: list[str]) -> list[str]:
     return [row["src_id"] for row in rows]
 
 
-def _insert_layout_points_for_cluster(layout_id: str, cluster_id: str, seed_ids: list[str]) -> None:
-    with get_conn() as conn:
+def _insert_layout_points_for_cluster(
+    layout_id: str,
+    cluster_id: str,
+    seed_ids: list[str],
+    *,
+    conn: "sqlite3.Connection | None" = None,
+) -> None:
+    if conn is None:
+        with get_conn() as conn_local:
+            _insert_layout_points_for_cluster(layout_id, cluster_id, seed_ids, conn=conn_local)
+        return
+
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO layout_points (
+          layout_id, target_type, target_id, x, y, is_active, created_at
+        ) VALUES (
+          :layout_id, 'cluster', :cluster_id, 0, 0, 1, datetime('now')
+        )
+        """,
+        {"layout_id": layout_id, "cluster_id": cluster_id},
+    )
+    for seed_id in seed_ids:
         conn.execute(
             """
             INSERT OR REPLACE INTO layout_points (
               layout_id, target_type, target_id, x, y, is_active, created_at
             ) VALUES (
-              :layout_id, 'cluster', :cluster_id, 0, 0, 1, datetime('now')
+              :layout_id, 'seed', :seed_id, 0, 0, 1, datetime('now')
             )
             """,
-            {"layout_id": layout_id, "cluster_id": cluster_id},
+            {"layout_id": layout_id, "seed_id": seed_id},
         )
-        for seed_id in seed_ids:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO layout_points (
-                  layout_id, target_type, target_id, x, y, is_active, created_at
-                ) VALUES (
-                  :layout_id, 'seed', :seed_id, 0, 0, 1, datetime('now')
-                )
-                """,
-                {"layout_id": layout_id, "seed_id": seed_id},
-            )
-        utterance_rows = conn.execute(
+    utterance_rows = (
+        conn.execute(
             """
             SELECT DISTINCT utterance_id
             FROM utterance_seeds
             WHERE seed_id IN ({seed_placeholders})
             """.format(seed_placeholders=",".join("?" for _ in seed_ids)),
             seed_ids,
-        ).fetchall() if seed_ids else []
-        for row in utterance_rows:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO layout_points (
-                  layout_id, target_type, target_id, x, y, is_active, created_at
-                ) VALUES (
-                  :layout_id, 'utterance', :utterance_id, 0, 0, 1, datetime('now')
-                )
-                """,
-                {"layout_id": layout_id, "utterance_id": row["utterance_id"]},
+        ).fetchall()
+        if seed_ids
+        else []
+    )
+    for row in utterance_rows:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO layout_points (
+              layout_id, target_type, target_id, x, y, is_active, created_at
+            ) VALUES (
+              :layout_id, 'utterance', :utterance_id, 0, 0, 1, datetime('now')
             )
+            """,
+            {"layout_id": layout_id, "utterance_id": row["utterance_id"]},
+        )
 
 
 def _insert_cluster_into_existing_layout_runs(source_cluster_id: str, new_cluster_id: str) -> None:
@@ -809,43 +824,56 @@ def _update_cluster_embedding(cluster_id: str, embed_map: dict[str, "np.ndarray"
         )
 
 
-def _upsert_edge(src_type: str, src_id: str, dst_type: str, dst_id: str, edge_type: str, weight: float) -> None:
-    with get_conn() as conn:
-        conn.execute(
-            """
-            DELETE FROM edges
-            WHERE src_type = :src_type AND src_id = :src_id
-              AND dst_type = :dst_type AND dst_id = :dst_id
-              AND edge_type = :edge_type
-            """,
-            {
-                "src_type": src_type,
-                "src_id": src_id,
-                "dst_type": dst_type,
-                "dst_id": dst_id,
-                "edge_type": edge_type,
-            },
+def _upsert_edge(
+    src_type: str,
+    src_id: str,
+    dst_type: str,
+    dst_id: str,
+    edge_type: str,
+    weight: float,
+    *,
+    conn: "sqlite3.Connection | None" = None,
+) -> None:
+    if conn is None:
+        with get_conn() as conn_local:
+            _upsert_edge(src_type, src_id, dst_type, dst_id, edge_type, weight, conn=conn_local)
+        return
+
+    conn.execute(
+        """
+        DELETE FROM edges
+        WHERE src_type = :src_type AND src_id = :src_id
+          AND dst_type = :dst_type AND dst_id = :dst_id
+          AND edge_type = :edge_type
+        """,
+        {
+            "src_type": src_type,
+            "src_id": src_id,
+            "dst_type": dst_type,
+            "dst_id": dst_id,
+            "edge_type": edge_type,
+        },
+    )
+    conn.execute(
+        """
+        INSERT INTO edges (
+          edge_id, src_type, src_id, dst_type, dst_id,
+          edge_type, weight, is_active, created_at, updated_at
+        ) VALUES (
+          :edge_id, :src_type, :src_id, :dst_type, :dst_id,
+          :edge_type, :weight, 1, datetime('now'), datetime('now')
         )
-        conn.execute(
-            """
-            INSERT INTO edges (
-              edge_id, src_type, src_id, dst_type, dst_id,
-              edge_type, weight, is_active, created_at, updated_at
-            ) VALUES (
-              :edge_id, :src_type, :src_id, :dst_type, :dst_id,
-              :edge_type, :weight, 1, datetime('now'), datetime('now')
-            )
-            """,
-            {
-                "edge_id": str(uuid.uuid4()),
-                "src_type": src_type,
-                "src_id": src_id,
-                "dst_type": dst_type,
-                "dst_id": dst_id,
-                "edge_type": edge_type,
-                "weight": weight,
-            },
-        )
+        """,
+        {
+            "edge_id": str(uuid.uuid4()),
+            "src_type": src_type,
+            "src_id": src_id,
+            "dst_type": dst_type,
+            "dst_id": dst_id,
+            "edge_type": edge_type,
+            "weight": weight,
+        },
+    )
 
 
 def main() -> None:

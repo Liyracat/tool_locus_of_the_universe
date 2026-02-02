@@ -154,12 +154,12 @@ const buildMockMap = (): MapResponse => {
   };
 };
 
-const convertNodes = (nodes: MapNode[]): GalaxyNode[] =>
+const convertNodes = (nodes: MapNode[], scale: number): GalaxyNode[] =>
   nodes.map((node) => ({
     id: node.id,
     node_type: node.node_type,
-    x: node.x,
-    y: node.y,
+    x: node.x * scale,
+    y: node.y * scale,
     radius: node.radius,
     glow_intensity: node.glow_intensity ?? 0.5,
     color_key: node.color_key,
@@ -181,6 +181,7 @@ const convertLinks = (links: MapLink[]): GalaxyLink[] =>
 export default function TopPage() {
   const [mapData, setMapData] = useState<MapResponse | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [useMock, setUseMock] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -188,12 +189,15 @@ export default function TopPage() {
       try {
         const data = await api.getMap({ view: "global" });
         if (!data.nodes.length) {
+          setUseMock(true);
           setMapData(buildMockMap());
           return;
         }
+        setUseMock(false);
         setMapData(data);
       } catch (err) {
         setStatus(err instanceof Error ? err.message : "データ取得に失敗しました");
+        setUseMock(true);
         setMapData(buildMockMap());
       }
     };
@@ -205,7 +209,10 @@ export default function TopPage() {
     .filter(Boolean)
     .join("  >  ") ?? "全体ビュー  >  グラスタA";
 
-  const nodes = useMemo(() => convertNodes(mapData?.nodes ?? []), [mapData]);
+  const nodes = useMemo(
+    () => convertNodes(mapData?.nodes ?? [], useMock ? 1 : 200),
+    [mapData, useMock]
+  );
   const links = useMemo(() => convertLinks(mapData?.links ?? []), [mapData]);
 
   return (
