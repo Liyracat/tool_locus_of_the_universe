@@ -338,6 +338,143 @@ def delete_success_jobs() -> dict:
     return {"deleted": deleted}
 
 
+@app.delete("/maintenance/purge", status_code=200)
+def purge_unused_data() -> dict:
+    with get_conn() as conn:
+        counts: dict[str, int] = {}
+
+        cur = conn.execute("DELETE FROM worker_jobs WHERE status = 'success'")
+        counts["worker_jobs"] = cur.rowcount or 0
+
+        cur = conn.execute(
+            """
+            DELETE FROM seeds
+            WHERE review_status = 'rejected'
+               OR (canonical_seed_id IS NOT NULL AND canonical_seed_id != '')
+            """
+        )
+        counts["seeds"] = cur.rowcount or 0
+
+        cur = conn.execute("DELETE FROM clusters WHERE is_archived = 1")
+        counts["clusters"] = cur.rowcount or 0
+
+        cur = conn.execute(
+            """
+            DELETE FROM embeddings
+            WHERE target_type = 'seed'
+              AND target_id NOT IN (SELECT seed_id FROM seeds)
+            """
+        )
+        counts["embeddings_seed"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM embeddings
+            WHERE target_type = 'cluster'
+              AND target_id NOT IN (SELECT cluster_id FROM clusters)
+            """
+        )
+        counts["embeddings_cluster"] = cur.rowcount or 0
+
+        cur = conn.execute("DELETE FROM layout_runs WHERE is_active = 0")
+        counts["layout_runs_inactive"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM layout_runs
+            WHERE scope_cluster_id IS NOT NULL
+              AND scope_cluster_id NOT IN (SELECT cluster_id FROM clusters)
+            """
+        )
+        counts["layout_runs_orphan"] = cur.rowcount or 0
+
+        cur = conn.execute("DELETE FROM layout_points WHERE is_active = 0")
+        counts["layout_points_inactive"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM layout_points
+            WHERE target_type = 'seed'
+              AND target_id NOT IN (SELECT seed_id FROM seeds)
+            """
+        )
+        counts["layout_points_seed"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM layout_points
+            WHERE target_type = 'cluster'
+              AND target_id NOT IN (SELECT cluster_id FROM clusters)
+            """
+        )
+        counts["layout_points_cluster"] = cur.rowcount or 0
+
+        cur = conn.execute("DELETE FROM edges WHERE is_active = 0")
+        counts["edges_inactive"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM edges
+            WHERE src_type = 'seed'
+              AND src_id NOT IN (SELECT seed_id FROM seeds)
+            """
+        )
+        counts["edges_src_seed"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM edges
+            WHERE src_type = 'cluster'
+              AND src_id NOT IN (SELECT cluster_id FROM clusters)
+            """
+        )
+        counts["edges_src_cluster"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM edges
+            WHERE dst_type = 'seed'
+              AND dst_id NOT IN (SELECT seed_id FROM seeds)
+            """
+        )
+        counts["edges_dst_seed"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM edges
+            WHERE dst_type = 'cluster'
+              AND dst_id NOT IN (SELECT cluster_id FROM clusters)
+            """
+        )
+        counts["edges_dst_cluster"] = cur.rowcount or 0
+
+        cur = conn.execute(
+            "DELETE FROM seed_merge_candidates WHERE status IN ('merged','rejected')"
+        )
+        counts["seed_merge_candidates_status"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM seed_merge_candidates
+            WHERE seed_a_id NOT IN (SELECT seed_id FROM seeds)
+            """
+        )
+        counts["seed_merge_candidates_seed_a"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM seed_merge_candidates
+            WHERE seed_b_id NOT IN (SELECT seed_id FROM seeds)
+            """
+        )
+        counts["seed_merge_candidates_seed_b"] = cur.rowcount or 0
+
+        cur = conn.execute(
+            """
+            UPDATE utterance_splits
+            SET contents = '-'
+            WHERE utterance_split_id IN (
+              SELECT target_id
+              FROM embeddings
+              WHERE target_type = 'utterance_split'
+            )
+            """
+        )
+        counts["utterance_splits_masked"] = cur.rowcount or 0
+
+    return {"status": "ok", "deleted": counts}
+
+
 @app.post("/worker-jobs/{job_id}/retry", status_code=200)
 def retry_worker_job(job_id: str) -> dict:
     with get_conn() as conn:

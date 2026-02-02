@@ -339,6 +339,12 @@ body {
   gap: 16px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .text-link {
   color: #bae6fd;
   text-decoration: none;

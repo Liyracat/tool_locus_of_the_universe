@@ -249,6 +249,11 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  purgeUnusedData() {
+    return request<{ status: string; deleted: Record<string, number> }>(`/api/maintenance/purge`, {
+      method: "DELETE",
+    });
+  },
   getMap(params?: {
     view?: "global" | "cluster";
     cluster_id?: string;

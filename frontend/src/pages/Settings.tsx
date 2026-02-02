@@ -94,6 +94,21 @@ export default function SettingsPage() {
     }
   };
 
+  const purgeUnusedData = async () => {
+    setStatus(null);
+    try {
+      const result = await api.purgeUnusedData();
+      const totalDeleted = Object.values(result.deleted ?? {}).reduce(
+        (sum, value) => sum + (Number.isFinite(value) ? Number(value) : 0),
+        0
+      );
+      setStatus(`不要データを削除しました（${totalDeleted}件）`);
+      await loadAll();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "不要データ削除に失敗しました");
+    }
+  };
+
   const retryJob = async (job_id: string) => {
     setStatus(null);
     try {
@@ -139,9 +154,14 @@ export default function SettingsPage() {
     <div className="page page-shell">
       <header className="page-header">
         <div className="breadcrumb">設定</div>
-        <Link to="/" className="text-link">
-          戻る / トップ
-        </Link>
+        <div className="header-actions">
+          <button type="button" className="button tiny ghost" onClick={purgeUnusedData}>
+            不要データ削除
+          </button>
+          <Link to="/" className="text-link">
+            戻る / トップ
+          </Link>
+        </div>
       </header>
       {status && <div className="status-text">{status}</div>}
 
