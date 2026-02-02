@@ -62,11 +62,38 @@ body {
   font-size: 1.5rem;
   font-weight: 600;
   letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .breadcrumb-dark {
   color: #f8fafc;
   text-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+.breadcrumb-item {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.breadcrumb-item::after {
+  content: " > ";
+  color: rgba(226, 232, 240, 0.6);
+}
+
+.breadcrumb-item:last-of-type::after {
+  content: "";
+}
+
+.breadcrumb-item:disabled {
+  cursor: default;
+  opacity: 0.75;
 }
 
 .top-actions {

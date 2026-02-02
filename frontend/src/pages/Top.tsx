@@ -184,6 +184,9 @@ export default function TopPage() {
   const [useMock, setUseMock] = useState(false);
   const [selectedNode, setSelectedNode] = useState<GalaxyNode | null>(null);
   const [utteranceRoles, setUtteranceRoles] = useState<UtteranceRole[]>([]);
+  const [breadcrumbStack, setBreadcrumbStack] = useState<
+    Array<{ label: string; view: "global" | "cluster"; cluster_id?: string | null }>
+  >([{ label: "全体ビュー", view: "global" }]);
   const [editState, setEditState] = useState<{
     seed_type?: string;
     review_status?: string;
@@ -193,6 +196,21 @@ export default function TopPage() {
     cluster_level?: string;
     utterance_role_id?: number | null;
   }>({});
+
+  const loadMap = async (view: "global" | "cluster", cluster_id?: string | null) => {
+    try {
+      const data = await api.getMap({ view, cluster_id: cluster_id ?? undefined });
+      if (!data.nodes.length) {
+        setUseMock(true);
+        setMapData(buildMockMap());
+        return;
+      }
+      setUseMock(false);
+      setMapData(data);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "データ取得に失敗しました");
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -219,33 +237,40 @@ export default function TopPage() {
     void load();
   }, []);
 
-  const reloadMap = async () => {
-    try {
-      const data = await api.getMap({ view: "global" });
-      if (!data.nodes.length) {
-        setUseMock(true);
-        setMapData(buildMockMap());
-        return;
-      }
-      setUseMock(false);
-      setMapData(data);
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : "データ取得に失敗しました");
-    }
-  };
-
-  const breadcrumb = mapData?.breadcrumb
-    ?.map((item) => item.label)
-    .filter(Boolean)
-    .join("  >  ") ?? "全体ビュー  >  グラスタA";
+  const currentView = breadcrumbStack[breadcrumbStack.length - 1];
 
   const nodes = useMemo(
-    () => convertNodes(mapData?.nodes ?? [], useMock ? 1 : 200),
+    () => convertNodes(mapData?.nodes ?? [], useMock ? 1 : 500),
     [mapData, useMock]
   );
   const links = useMemo(() => convertLinks(mapData?.links ?? []), [mapData]);
 
+  const drillDownCluster = async (node: GalaxyNode) => {
+    if (useMock) return;
+    const overview = String(node.meta?.["cluster_overview"] ?? "");
+    const label = overview ? overview.slice(0, 7) : node.id;
+    setBreadcrumbStack((prev) => [...prev, { label, view: "cluster", cluster_id: node.id }]);
+    setSelectedNode(null);
+    await loadMap("cluster", node.id);
+  };
+
+  const handleBreadcrumbClick = async (index: number) => {
+    const target = breadcrumbStack[index];
+    if (!target) return;
+    setBreadcrumbStack((prev) => prev.slice(0, index + 1));
+    setSelectedNode(null);
+    await loadMap(target.view, target.cluster_id ?? null);
+  };
+
   const handleNodeClick = (node: GalaxyNode) => {
+    if (
+      selectedNode &&
+      selectedNode.id === node.id &&
+      (node.node_type === "cluster" || node.node_type === "galaxy")
+    ) {
+      void drillDownCluster(node);
+      return;
+    }
     setSelectedNode(node);
     const meta = node.meta ?? {};
     if (node.node_type === "utterance") {
@@ -295,7 +320,10 @@ export default function TopPage() {
           cluster_level: editState.cluster_level ?? "cluster",
         });
       }
-      await reloadMap();
+      await loadMap(
+        breadcrumbStack[breadcrumbStack.length - 1]?.view ?? "global",
+        breadcrumbStack[breadcrumbStack.length - 1]?.cluster_id ?? null
+      );
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "保存に失敗しました");
     }
@@ -313,7 +341,10 @@ export default function TopPage() {
         canonical_seed_id: editState.canonical_seed_id?.trim() || null,
       });
       setEditState((prev) => ({ ...prev, review_status: nextStatus }));
-      await reloadMap();
+      await loadMap(
+        breadcrumbStack[breadcrumbStack.length - 1]?.view ?? "global",
+        breadcrumbStack[breadcrumbStack.length - 1]?.cluster_id ?? null
+      );
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "更新に失敗しました");
     }
@@ -323,7 +354,19 @@ export default function TopPage() {
     <div className="top-page">
       <div className="top-overlay">
         <div className="top-toolbar">
-          <div className="breadcrumb breadcrumb-dark">{breadcrumb}</div>
+          <div className="breadcrumb breadcrumb-dark">
+            {breadcrumbStack.map((item, index) => (
+              <button
+                key={`${item.view}-${item.cluster_id ?? "root"}-${index}`}
+                type="button"
+                className="breadcrumb-item"
+                onClick={() => handleBreadcrumbClick(index)}
+                disabled={index === breadcrumbStack.length - 1}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
           <div className="top-actions">
             <Link to="/import" className="icon-button" aria-label="インポート">
               <span className="icon">＋</span>
@@ -348,7 +391,13 @@ export default function TopPage() {
       </div>
 
       <div className="galaxy-stage">
-        <GalaxyMapCanvas nodes={nodes} links={links} edgeMode="hover" onNodeClick={handleNodeClick} />
+        <GalaxyMapCanvas
+          key={`${currentView?.view ?? "global"}:${currentView?.cluster_id ?? "root"}`}
+          nodes={nodes}
+          links={links}
+          edgeMode="hover"
+          onNodeClick={handleNodeClick}
+        />
         {status && <div className="status-banner">{status}</div>}
         {selectedNode && (
           <div className="node-editor">

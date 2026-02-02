@@ -477,6 +477,27 @@ export default function GalaxyMapCanvas({
       }
     });
 
+    if (nodes.length) {
+      const xs = nodes.map((node) => node.x);
+      const ys = nodes.map((node) => node.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const spanX = Math.max(1, maxX - minX);
+      const spanY = Math.max(1, maxY - minY);
+      const viewWidth = app.renderer.width;
+      const viewHeight = app.renderer.height;
+      const scaleX = (viewWidth * 0.7) / spanX;
+      const scaleY = (viewHeight * 0.7) / spanY;
+      const nextScale = clamp(Math.min(scaleX, scaleY), 0.35, 2.4);
+      world.scale.set(nextScale);
+      world.x = viewWidth / 2 - ((minX + maxX) / 2) * nextScale;
+      world.y = viewHeight / 2 - ((minY + maxY) / 2) * nextScale;
+      panRef.current.x = world.x - viewWidth / 2;
+      panRef.current.y = world.y - viewHeight / 2;
+    }
+
     if (edgeMode === "topN") {
       drawTopEdges(nodes, links, edgesLayer, topN);
     } else {
