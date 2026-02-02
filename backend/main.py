@@ -18,6 +18,9 @@ try:
         UtteranceRoleUpdate,
         UtteranceRole,
         WorkerJob,
+        UtteranceUpdate,
+        SeedUpdate,
+        ClusterUpdate,
     )
     from .import_splitter import split_import_text
 except ImportError:
@@ -33,6 +36,9 @@ except ImportError:
         UtteranceRoleUpdate,
         UtteranceRole,
         WorkerJob,
+        UtteranceUpdate,
+        SeedUpdate,
+        ClusterUpdate,
     )
     from import_splitter import split_import_text
 
@@ -354,6 +360,127 @@ def retry_worker_job(job_id: str) -> dict:
     return {"status": "queued"}
 
 
+@app.put("/utterances/{utterance_id}", response_model=dict)
+def update_utterance(utterance_id: str, payload: UtteranceUpdate) -> dict:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE utterance
+            SET utterance_role_id = :utterance_role_id,
+                updated_at = datetime('now')
+            WHERE utterance_id = :utterance_id
+            """,
+            {"utterance_role_id": payload.utterance_role_id, "utterance_id": utterance_id},
+        )
+        row = conn.execute(
+            "SELECT utterance_id, utterance_role_id, updated_at FROM utterance WHERE utterance_id = :utterance_id",
+            {"utterance_id": utterance_id},
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="utterance not found")
+    return dict(row)
+
+
+@app.put("/seeds/{seed_id}", response_model=dict)
+def update_seed(seed_id: str, payload: SeedUpdate) -> dict:
+    canonical_seed_id = payload.canonical_seed_id or None
+    with get_conn() as conn:
+        if canonical_seed_id:
+            row = conn.execute(
+                "SELECT seed_id FROM seeds WHERE seed_id = :seed_id",
+                {"seed_id": canonical_seed_id},
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=400, detail="canonical_seed_id not found")
+
+        conn.execute(
+            """
+            UPDATE seeds
+            SET seed_type = :seed_type,
+                body = :body,
+                canonical_seed_id = :canonical_seed_id,
+                review_status = COALESCE(:review_status, review_status),
+                updated_at = datetime('now')
+            WHERE seed_id = :seed_id
+            """,
+            {
+                "seed_id": seed_id,
+                "seed_type": payload.seed_type,
+                "body": payload.body,
+                "canonical_seed_id": canonical_seed_id,
+                "review_status": payload.review_status,
+            },
+        )
+
+        if canonical_seed_id and canonical_seed_id != seed_id:
+            conn.execute(
+                """
+                UPDATE utterance_seeds
+                SET seed_id = :canonical_seed_id
+                WHERE seed_id = :seed_id
+                """,
+                {"seed_id": seed_id, "canonical_seed_id": canonical_seed_id},
+            )
+            conn.execute(
+                """
+                UPDATE edges
+                SET src_id = :canonical_seed_id
+                WHERE src_type = 'seed' AND src_id = :seed_id
+                """,
+                {"seed_id": seed_id, "canonical_seed_id": canonical_seed_id},
+            )
+            conn.execute(
+                """
+                UPDATE edges
+                SET dst_id = :canonical_seed_id
+                WHERE dst_type = 'seed' AND dst_id = :seed_id
+                """,
+                {"seed_id": seed_id, "canonical_seed_id": canonical_seed_id},
+            )
+
+        row = conn.execute(
+            """
+            SELECT seed_id, seed_type, body, canonical_seed_id, review_status, updated_at
+            FROM seeds
+            WHERE seed_id = :seed_id
+            """,
+            {"seed_id": seed_id},
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="seed not found")
+    return dict(row)
+
+
+@app.put("/clusters/{cluster_id}", response_model=dict)
+def update_cluster(cluster_id: str, payload: ClusterUpdate) -> dict:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE clusters
+            SET cluster_overview = :cluster_overview,
+                cluster_level = :cluster_level,
+                updated_at = datetime('now')
+            WHERE cluster_id = :cluster_id
+            """,
+            {
+                "cluster_id": cluster_id,
+                "cluster_overview": payload.cluster_overview,
+                "cluster_level": payload.cluster_level,
+            },
+        )
+        row = conn.execute(
+            """
+            SELECT cluster_id, cluster_overview, cluster_level, updated_at
+            FROM clusters
+            WHERE cluster_id = :cluster_id
+            """,
+            {"cluster_id": cluster_id},
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="cluster not found")
+    return dict(row)
+
+
 def _build_in_clause(values: List[str], prefix: str) -> tuple[str, dict]:
     params = {}
     placeholders = []
@@ -398,12 +525,15 @@ def get_map(
             seed_rows = conn.execute(
                 """
                 SELECT lp.target_id AS seed_id, lp.x, lp.y,
-                       s.title, s.body, s.review_status
+                       s.title, s.body, s.review_status, s.created_at,
+                       s.seed_type, s.canonical_seed_id
                 FROM layout_points lp
                 JOIN seeds s ON s.seed_id = lp.target_id
                 WHERE lp.layout_id = :layout_id
                   AND lp.target_type = 'seed'
                   AND lp.is_active = 1
+                  AND (s.review_status IS NULL OR s.review_status != 'rejected')
+                  AND (s.canonical_seed_id IS NULL OR s.canonical_seed_id = '')
                 """,
                 {"layout_id": layout_id},
             ).fetchall()
@@ -420,7 +550,13 @@ def get_map(
                         "title": row["title"],
                         "label": row["title"],
                         "preview": row["body"][:60] if row["body"] else None,
-                        "meta": {"review_status": row["review_status"]},
+                        "meta": {
+                            "review_status": row["review_status"],
+                            "body": row["body"],
+                            "created_at": row["created_at"],
+                            "seed_type": row["seed_type"],
+                            "canonical_seed_id": row["canonical_seed_id"],
+                        },
                     }
                 )
 
@@ -428,7 +564,7 @@ def get_map(
             cluster_rows = conn.execute(
                 """
                 SELECT lp.target_id AS cluster_id, lp.x, lp.y,
-                       c.cluster_name, c.cluster_overview, c.cluster_level
+                       c.cluster_name, c.cluster_overview, c.cluster_level, c.created_at
                 FROM layout_points lp
                 JOIN clusters c ON c.cluster_id = lp.target_id
                 WHERE lp.layout_id = :layout_id
@@ -450,7 +586,11 @@ def get_map(
                         "title": row["cluster_name"],
                         "label": row["cluster_name"],
                         "preview": row["cluster_overview"][:60] if row["cluster_overview"] else None,
-                        "meta": {"cluster_level": row["cluster_level"]},
+                        "meta": {
+                            "cluster_level": row["cluster_level"],
+                            "cluster_overview": row["cluster_overview"],
+                            "created_at": row["created_at"],
+                        },
                     }
                 )
 
@@ -458,12 +598,31 @@ def get_map(
             utterance_rows = conn.execute(
                 """
                 SELECT lp.target_id AS utterance_id, lp.x, lp.y,
-                       u.contents
+                       u.contents, u.conversation_at,
+                       s.speaker_name,
+                       r.utterance_role_name,
+                       u.utterance_role_id
                 FROM layout_points lp
                 JOIN utterance u ON u.utterance_id = lp.target_id
+                LEFT JOIN speakers s ON s.speaker_id = u.speaker_id
+                LEFT JOIN utterance_roles r ON r.utterance_role_id = u.utterance_role_id
                 WHERE lp.layout_id = :layout_id
                   AND lp.target_type = 'utterance'
                   AND lp.is_active = 1
+                  AND (
+                    NOT EXISTS (
+                      SELECT 1 FROM utterance_seeds us
+                      WHERE us.utterance_id = u.utterance_id
+                    )
+                    OR EXISTS (
+                      SELECT 1
+                      FROM utterance_seeds us
+                      JOIN seeds ss ON ss.seed_id = us.seed_id
+                      WHERE us.utterance_id = u.utterance_id
+                        AND (ss.review_status IS NULL OR ss.review_status != 'rejected')
+                        AND (ss.canonical_seed_id IS NULL OR ss.canonical_seed_id = '')
+                    )
+                  )
                 """,
                 {"layout_id": layout_id},
             ).fetchall()
@@ -479,6 +638,13 @@ def get_map(
                         "glow_intensity": 0.3,
                         "title": row["contents"][:24] if row["contents"] else None,
                         "label": None,
+                        "meta": {
+                            "contents": row["contents"],
+                            "speaker_name": row["speaker_name"],
+                            "conversation_at": row["conversation_at"],
+                            "utterance_role_name": row["utterance_role_name"],
+                            "utterance_role_id": row["utterance_role_id"],
+                        },
                     }
                 )
 
@@ -491,6 +657,28 @@ def get_map(
                 SELECT edge_id, src_id, dst_id, edge_type, weight, is_active
                 FROM edges
                 WHERE edge_type IN {clause} AND is_active = 1
+                  AND (
+                    src_type != 'seed'
+                    OR NOT EXISTS (
+                      SELECT 1 FROM seeds s
+                      WHERE s.seed_id = edges.src_id
+                        AND (
+                          s.review_status = 'rejected'
+                          OR (s.canonical_seed_id IS NOT NULL AND s.canonical_seed_id != '')
+                        )
+                    )
+                  )
+                  AND (
+                    dst_type != 'seed'
+                    OR NOT EXISTS (
+                      SELECT 1 FROM seeds s
+                      WHERE s.seed_id = edges.dst_id
+                        AND (
+                          s.review_status = 'rejected'
+                          OR (s.canonical_seed_id IS NOT NULL AND s.canonical_seed_id != '')
+                        )
+                    )
+                  )
                 """,
                 params,
             ).fetchall()
@@ -514,6 +702,11 @@ def get_map(
                 """
                 SELECT utterance_id, seed_id, relation_type, confidence, created_at
                 FROM utterance_seeds
+                WHERE seed_id NOT IN (
+                  SELECT seed_id FROM seeds
+                  WHERE review_status = 'rejected'
+                     OR (canonical_seed_id IS NOT NULL AND canonical_seed_id != '')
+                )
                 """,
             ).fetchall()
             for row in us_rows:

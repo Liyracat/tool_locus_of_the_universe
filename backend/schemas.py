@@ -77,3 +77,19 @@ class WorkerJob(BaseModel):
     status: str
     error: Optional[str] = None
     updated_at: str
+
+
+class UtteranceUpdate(BaseModel):
+    utterance_role_id: Optional[int] = None
+
+
+class SeedUpdate(BaseModel):
+    seed_type: str
+    body: str
+    canonical_seed_id: Optional[str] = None
+    review_status: Optional[str] = None
+
+
+class ClusterUpdate(BaseModel):
+    cluster_overview: Optional[str] = None
+    cluster_level: str

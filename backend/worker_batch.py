@@ -345,7 +345,7 @@ def _insert_seed_results(job: WorkerJob, seeds: list[str], flag_field: str | Non
                   seed_id, seed_type, title, body, created_from,
                   review_status, created_at, updated_at
                 ) VALUES (
-                  :seed_id, 'seed', NULL, :body, 'utterance',
+                  :seed_id, 'auto', NULL, :body, 'utterance',
                   'auto', datetime('now'), datetime('now')
                 )
                 """,

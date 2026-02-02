@@ -102,8 +102,8 @@ export default function GalaxyMapCanvas({
     }>
   >([]);
   const [tooltip, setTooltip] = useState<{
-    label: string;
-    type: string;
+    title: string;
+    subtitle: string;
     x: number;
     y: number;
     visible: boolean;
@@ -424,10 +424,10 @@ export default function GalaxyMapCanvas({
         core.alpha = clamp(coreAlpha + 0.04, 0, 1);
         star.scale.set(1.12);
         const screenPoint = world.toGlobal(star.position);
-        const label = node.label || node.meta?.["title"]?.toString() || node.id;
+        const tooltipData = buildTooltip(node);
         setTooltip({
-          label,
-          type: node.node_type,
+          title: tooltipData.title,
+          subtitle: tooltipData.subtitle,
           x: screenPoint.x,
           y: screenPoint.y,
           visible: true,
@@ -516,12 +516,57 @@ export default function GalaxyMapCanvas({
             transform: `translate(${tooltip.x + 16}px, ${tooltip.y - 24}px)`,
           }}
         >
-          <div className="tooltip-title">{tooltip.label}</div>
-          <div className="tooltip-meta">{tooltip.type}</div>
+          <div className="tooltip-title" style={{ whiteSpace: "pre-wrap" }}>
+            {tooltip.title}
+          </div>
+          <div className="tooltip-meta">{tooltip.subtitle}</div>
         </div>
       )}
     </div>
   );
+}
+
+function wrapByChars(text: string, lineLength: number) {
+  const lines: string[] = [];
+  const parts = text.split("\n");
+  for (const part of parts) {
+    if (!part) {
+      lines.push("");
+      continue;
+    }
+    let idx = 0;
+    while (idx < part.length) {
+      lines.push(part.slice(idx, idx + lineLength));
+      idx += lineLength;
+    }
+  }
+  return lines.join("\n");
+}
+
+function buildTooltip(node: GalaxyNode): { title: string; subtitle: string } {
+  const meta = node.meta ?? {};
+  if (node.node_type === "utterance") {
+    const contents = String(meta["contents"] ?? "");
+    const title = wrapByChars(contents, 40);
+    const parts = [
+      meta["speaker_name"],
+      meta["conversation_at"],
+      meta["utterance_role_name"],
+    ]
+      .map((value) => (value ? String(value) : ""))
+      .filter(Boolean);
+    return { title, subtitle: parts.join(" / ") };
+  }
+  if (node.node_type === "seed") {
+    const body = String(meta["body"] ?? "");
+    return { title: wrapByChars(body, 40), subtitle: String(meta["created_at"] ?? "") };
+  }
+  if (node.node_type === "cluster" || node.node_type === "galaxy") {
+    const overview = String(meta["cluster_overview"] ?? "");
+    return { title: wrapByChars(overview, 40), subtitle: String(meta["created_at"] ?? "") };
+  }
+  const fallback = node.label || node.id;
+  return { title: wrapByChars(String(fallback), 40), subtitle: node.node_type };
 }
 
 function drawEdgesForNode(

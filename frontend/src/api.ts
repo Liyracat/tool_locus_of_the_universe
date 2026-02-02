@@ -173,6 +173,57 @@ export const api = {
       method: "POST",
     });
   },
+  updateUtterance(utterance_id: string, payload: { utterance_role_id: number | null }) {
+    return request<{ utterance_id: string; utterance_role_id: number | null }>(
+      `/api/utterances/${utterance_id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }
+    );
+  },
+  updateSeed(payload: {
+    seed_id: string;
+    seed_type: string;
+    body: string;
+    canonical_seed_id?: string | null;
+    review_status?: string | null;
+  }) {
+    return request<{
+      seed_id: string;
+      seed_type: string;
+      body: string;
+      canonical_seed_id?: string | null;
+      review_status?: string | null;
+    }>(
+      `/api/seeds/${payload.seed_id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          seed_type: payload.seed_type,
+          body: payload.body,
+          canonical_seed_id: payload.canonical_seed_id ?? null,
+          review_status: payload.review_status ?? null,
+        }),
+      }
+    );
+  },
+  updateCluster(payload: {
+    cluster_id: string;
+    cluster_overview: string | null;
+    cluster_level: string;
+  }) {
+    return request<{ cluster_id: string; cluster_overview: string | null; cluster_level: string }>(
+      `/api/clusters/${payload.cluster_id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          cluster_overview: payload.cluster_overview,
+          cluster_level: payload.cluster_level,
+        }),
+      }
+    );
+  },
   getMap(params?: {
     view?: "global" | "cluster";
     cluster_id?: string;

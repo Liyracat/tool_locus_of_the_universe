@@ -106,7 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_worker_jobs_expires_at
 -- =========================================
 CREATE TABLE IF NOT EXISTS seeds (
   seed_id       TEXT PRIMARY KEY,                       -- UUID
-  seed_type     TEXT NOT NULL DEFAULT 'seed'             -- seed / external_knowledge / concept など
+  seed_type     TEXT NOT NULL DEFAULT 'seed'             -- seed / external_knowledge / concept
     CHECK (seed_type IN ('seed','external_knowledge','concept')),
   title         TEXT,                                   -- UI用の短い見出し
   body          TEXT NOT NULL,                           -- Seed本文
