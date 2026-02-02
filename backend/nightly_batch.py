@@ -106,6 +106,7 @@ def run_nightly_batch() -> None:
     _cluster_create()
     _regenerate_edges()
     _recalculate_layouts()
+    _seed_merge_candidates()
     logger.info("Nightly batch end")
 
 
@@ -502,6 +503,99 @@ def _recalculate_layouts() -> None:
                         "y": float(coord[1]),
                     },
                 )
+
+
+def _seed_merge_candidates() -> None:
+    _ensure_numpy()
+    _ensure_faiss()
+
+    ids, matrix = _load_embeddings(["seed"])
+    if not ids:
+        return
+
+    with get_conn() as conn:
+        seed_rows = conn.execute(
+            """
+            SELECT seed_id, body, created_at, updated_at
+            FROM seeds
+            """
+        ).fetchall()
+
+    seed_meta = {
+        row["seed_id"]: {
+            "body": row["body"] or "",
+            "created_at": row["created_at"] or "",
+            "updated_at": row["updated_at"] or "",
+        }
+        for row in seed_rows
+    }
+
+    index = _build_faiss_index(matrix)
+    k = min(21, len(ids))
+
+    def pick_a_b(seed_id: str, other_id: str) -> tuple[str, str]:
+        a = seed_meta.get(seed_id)
+        b = seed_meta.get(other_id)
+        if not a or not b:
+            return (seed_id, other_id) if seed_id < other_id else (other_id, seed_id)
+        if (a["created_at"], a["updated_at"], seed_id) <= (b["created_at"], b["updated_at"], other_id):
+            return seed_id, other_id
+        return other_id, seed_id
+
+    candidates: dict[tuple[str, str], dict[str, float | None]] = {}
+
+    for idx, (_, seed_id) in enumerate(ids):
+        vec = matrix[idx : idx + 1]
+        scores, neighbors = index.search(vec, k)
+        for score, n_idx in zip(scores[0].tolist(), neighbors[0].tolist()):
+            if n_idx < 0 or n_idx >= len(ids):
+                continue
+            _, other_id = ids[n_idx]
+            if other_id == seed_id:
+                continue
+            a_id, b_id = pick_a_b(seed_id, other_id)
+            if a_id == b_id:
+                continue
+
+            exact_text = (
+                seed_meta.get(seed_id, {}).get("body", "")
+                == seed_meta.get(other_id, {}).get("body", "")
+            )
+            if exact_text:
+                candidates[(a_id, b_id)] = {"reason": "exact_text", "similarity": None}
+                continue
+
+            if score >= 0.85:
+                entry = candidates.get((a_id, b_id))
+                if entry and entry.get("reason") == "exact_text":
+                    continue
+                prev_sim = entry.get("similarity") if entry else None
+                if prev_sim is None or float(score) > float(prev_sim):
+                    candidates[(a_id, b_id)] = {"reason": "near_duplicate", "similarity": float(score)}
+
+    if not candidates:
+        return
+
+    with get_conn() as conn:
+        for (a_id, b_id), meta in candidates.items():
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO seed_merge_candidates (
+                  candidate_id, seed_a_id, seed_b_id, reason, similarity,
+                  status, created_at, updated_at
+                ) VALUES (
+                  :candidate_id, :seed_a_id, :seed_b_id, :reason, :similarity,
+                  'proposed', datetime('now'), datetime('now')
+                )
+                """,
+                {
+                    "candidate_id": str(uuid.uuid4()),
+                    "seed_a_id": a_id,
+                    "seed_b_id": b_id,
+                    "reason": meta["reason"],
+                    "similarity": meta["similarity"],
+                },
+            )
 
 
 def _archive_cluster(cluster_id: str) -> None:
