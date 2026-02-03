@@ -114,6 +114,17 @@ export default function SettingsPage() {
     }
   };
 
+  const reprioritizeWorkerJobs = async () => {
+    setStatus(null);
+    try {
+      const result = await api.reprioritizeWorkerJobs();
+      setStatus(`優先順位を更新しました（${result.updated}件）`);
+      await loadAll();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "優先順位更新に失敗しました");
+    }
+  };
+
   const retryJob = async (job_id: string) => {
     setStatus(null);
     try {
@@ -206,6 +217,9 @@ export default function SettingsPage() {
       <header className="page-header">
         <div className="breadcrumb">設定</div>
         <div className="header-actions">
+          <button type="button" className="button tiny ghost" onClick={reprioritizeWorkerJobs}>
+            優先順位自動採番
+          </button>
           <button type="button" className="button tiny ghost" onClick={purgeUnusedData}>
             不要データ削除
           </button>

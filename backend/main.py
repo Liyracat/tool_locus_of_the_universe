@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
+import sqlite3
 import uuid
 
 try:
@@ -363,6 +364,22 @@ def purge_unused_data() -> dict:
 
         cur = conn.execute("DELETE FROM worker_jobs WHERE status = 'success'")
         counts["worker_jobs"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM worker_jobs
+            WHERE target_table = 'utterance'
+              AND target_id NOT IN (SELECT utterance_id FROM utterance)
+            """
+        )
+        counts["worker_jobs_utterance_orphan"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM worker_jobs
+            WHERE target_table = 'utterance_split'
+              AND target_id NOT IN (SELECT utterance_split_id FROM utterance_splits)
+            """
+        )
+        counts["worker_jobs_utterance_split_orphan"] = cur.rowcount or 0
 
         cur = conn.execute(
             """
@@ -515,6 +532,159 @@ def purge_unused_data() -> dict:
         counts["utterance_splits_masked"] = cur.rowcount or 0
 
     return {"status": "ok", "deleted": counts}
+
+
+@app.post("/maintenance/reprioritize", status_code=200)
+def reprioritize_worker_jobs() -> dict:
+    with get_conn() as conn:
+        jobs = conn.execute(
+            """
+            SELECT job_id, job_type, target_table, target_id
+            FROM worker_jobs
+            WHERE status = 'queued'
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+
+        if not jobs:
+            return {"status": "ok", "updated": 0}
+
+        utterance_ids = {
+            row["target_id"] for row in jobs if row["target_table"] == "utterance"
+        }
+        utterance_split_ids = {
+            row["target_id"] for row in jobs if row["target_table"] == "utterance_split"
+        }
+
+        utterance_splits_by_utterance: dict[str, list[str]] = {}
+        if utterance_ids:
+            placeholders = ",".join("?" for _ in utterance_ids)
+            rows = conn.execute(
+                f"""
+                SELECT utterance_split_id, utterance_id
+                FROM utterance_splits
+                WHERE utterance_id IN ({placeholders})
+                """,
+                list(utterance_ids),
+            ).fetchall()
+            for row in rows:
+                utterance_splits_by_utterance.setdefault(row["utterance_id"], []).append(
+                    row["utterance_split_id"]
+                )
+
+        splits_with_embedding: set[str] = set()
+        if utterance_split_ids:
+            placeholders = ",".join("?" for _ in utterance_split_ids)
+            rows = conn.execute(
+                f"""
+                SELECT target_id
+                FROM embeddings
+                WHERE target_type = 'utterance_split'
+                  AND target_id IN ({placeholders})
+                """,
+                list(utterance_split_ids),
+            ).fetchall()
+            splits_with_embedding = {row["target_id"] for row in rows}
+
+        utterance_with_seed_link: set[str] = set()
+        if utterance_ids:
+            placeholders = ",".join("?" for _ in utterance_ids)
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT utterance_id
+                FROM utterance_seeds
+                WHERE utterance_id IN ({placeholders})
+                """,
+                list(utterance_ids),
+            ).fetchall()
+            utterance_with_seed_link = {row["utterance_id"] for row in rows}
+
+        utterance_did_asked: set[str] = set()
+        if utterance_ids:
+            placeholders = ",".join("?" for _ in utterance_ids)
+            rows = conn.execute(
+                f"""
+                SELECT utterance_id
+                FROM utterance
+                WHERE did_asked_knowledge = 1
+                  AND utterance_id IN ({placeholders})
+                """,
+                list(utterance_ids),
+            ).fetchall()
+            utterance_did_asked = {row["utterance_id"] for row in rows}
+
+        def matches_rule(job: sqlite3.Row, rule_id: int) -> bool:
+            if rule_id == 1:
+                return job["job_type"] == "cluster_body"
+            if rule_id == 2:
+                return job["job_type"] == "embedding" and job["target_table"] == "seed"
+            if rule_id == 3:
+                if job["job_type"] != "embedding_utterance" or job["target_table"] != "utterance":
+                    return False
+                split_ids = utterance_splits_by_utterance.get(job["target_id"], [])
+                return bool(split_ids) and all(split_id in splits_with_embedding for split_id in split_ids)
+            if rule_id == 4:
+                if job["job_type"] != "embedding" or job["target_table"] != "utterance_split":
+                    return False
+                split_id = job["target_id"]
+                if split_id not in utterance_split_ids:
+                    return False
+                utterance_id = None
+                for u_id, split_ids in utterance_splits_by_utterance.items():
+                    if split_id in split_ids:
+                        utterance_id = u_id
+                        break
+                return utterance_id in utterance_with_seed_link if utterance_id else False
+            if rule_id == 5:
+                return (
+                    job["job_type"] == "utterance_role"
+                    and job["target_table"] == "utterance"
+                    and job["target_id"] in utterance_did_asked
+                )
+            if rule_id == 6:
+                return job["job_type"] == "did_asked_knowledge"
+            return False
+
+        ordered_jobs: list[str] = []
+        used: set[str] = set()
+        for rule_id in range(1, 7):
+            for job in jobs:
+                if job["job_id"] in used:
+                    continue
+                if matches_rule(job, rule_id):
+                    ordered_jobs.append(job["job_id"])
+                    used.add(job["job_id"])
+
+        def add_remaining(job_type: str) -> None:
+            for job in jobs:
+                if job["job_id"] in used:
+                    continue
+                if job["job_type"] == job_type:
+                    ordered_jobs.append(job["job_id"])
+                    used.add(job["job_id"])
+
+        add_remaining("embedding")
+        add_remaining("embedding_utterance")
+        add_remaining("utterance_role")
+
+        for job in jobs:
+            if job["job_id"] in used:
+                continue
+            ordered_jobs.append(job["job_id"])
+            used.add(job["job_id"])
+
+        for idx, job_id in enumerate(ordered_jobs, start=1):
+            conn.execute(
+                """
+                UPDATE worker_jobs
+                SET priority = :priority,
+                    updated_at = datetime('now')
+                WHERE job_id = :job_id
+                """,
+                {"priority": idx, "job_id": job_id},
+            )
+
+    return {"status": "ok", "updated": len(ordered_jobs)}
 
 
 @app.post("/worker-jobs/{job_id}/retry", status_code=200)

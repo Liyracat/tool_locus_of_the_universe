@@ -263,6 +263,11 @@ export const api = {
       method: "DELETE",
     });
   },
+  reprioritizeWorkerJobs() {
+    return request<{ status: string; updated: number }>(`/api/maintenance/reprioritize`, {
+      method: "POST",
+    });
+  },
   getWorkerTarget(target_table: string, target_id: string) {
     const query = new URLSearchParams({ target_table, target_id });
     return request<WorkerTargetInfo>(`/api/worker-target?${query.toString()}`);
