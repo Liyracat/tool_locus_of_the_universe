@@ -191,6 +191,7 @@ export default function TopPage() {
   const [mergePanelOpen, setMergePanelOpen] = useState(false);
   const [selectedMergeCandidateId, setSelectedMergeCandidateId] = useState<string | null>(null);
   const [edgeVisible, setEdgeVisible] = useState(false);
+  const [lockView, setLockView] = useState(false);
   const [editState, setEditState] = useState<{
     seed_type?: string;
     review_status?: string;
@@ -293,8 +294,9 @@ export default function TopPage() {
         canonical_seed_id: String(meta["canonical_seed_id"] ?? ""),
       });
       setMergeCandidates([]);
-      setMergePanelOpen(false);
+      setMergePanelOpen(true);
       setSelectedMergeCandidateId(null);
+      void loadMergeCandidates(node.id);
       return;
     }
     if (node.node_type === "cluster" || node.node_type === "galaxy") {
@@ -352,6 +354,7 @@ export default function TopPage() {
   const updateSeedReviewStatus = async (nextStatus: string) => {
     if (!selectedNode || selectedNode.node_type !== "seed") return;
     setStatus(null);
+    setLockView(true);
     try {
       await api.updateSeed({
         seed_id: selectedNode.id,
@@ -365,27 +368,65 @@ export default function TopPage() {
         breadcrumbStack[breadcrumbStack.length - 1]?.view ?? "global",
         breadcrumbStack[breadcrumbStack.length - 1]?.cluster_id ?? null
       );
+      if (nextStatus === "rejected") {
+        setSelectedNode(null);
+      }
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "更新に失敗しました");
+    } finally {
+      setLockView(false);
     }
   };
 
-  const loadMergeCandidates = async () => {
-    if (!selectedNode || selectedNode.node_type !== "seed") return;
+  const loadMergeCandidates = async (seedId?: string) => {
+    const targetId =
+      seedId ?? (selectedNode && selectedNode.node_type === "seed" ? selectedNode.id : null);
+    if (!targetId) return;
     try {
-      const list = await api.listSeedMergeCandidates(selectedNode.id);
+      const list = await api.listSeedMergeCandidates(targetId);
       setMergeCandidates(list);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "統合候補の取得に失敗しました");
     }
   };
 
-  const handleMergeSelect = (candidate: SeedMergeCandidate) => {
+  const handleMergeSelect = async (candidate: SeedMergeCandidate) => {
+    if (!selectedNode || selectedNode.node_type !== "seed") return;
+    setStatus(null);
+    setLockView(true);
     setEditState((prev) => ({
       ...prev,
       canonical_seed_id: candidate.seed_a_id,
     }));
     setSelectedMergeCandidateId(candidate.candidate_id);
+    try {
+      await api.updateSeed({
+        seed_id: selectedNode.id,
+        seed_type: editState.seed_type ?? "auto",
+        review_status: editState.review_status ?? "auto",
+        body: editState.body ?? "",
+        canonical_seed_id: candidate.seed_a_id,
+      });
+      const rejectIds = mergeCandidates
+        .map((item) => item.candidate_id)
+        .filter((id) => id !== candidate.candidate_id);
+      await api.resolveSeedMergeCandidates({
+        merged_candidate_id: candidate.candidate_id,
+        reject_candidate_ids: rejectIds,
+      });
+      await loadMap(
+        breadcrumbStack[breadcrumbStack.length - 1]?.view ?? "global",
+        breadcrumbStack[breadcrumbStack.length - 1]?.cluster_id ?? null
+      );
+      setMergeCandidates([]);
+      setMergePanelOpen(false);
+      setSelectedMergeCandidateId(null);
+      setSelectedNode(null);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "統合に失敗しました");
+    } finally {
+      setLockView(false);
+    }
   };
 
   const handleMergeReject = async (candidate: SeedMergeCandidate) => {
@@ -443,6 +484,7 @@ export default function TopPage() {
           nodes={nodes}
           links={linksForRender}
           edgeMode={edgeVisible ? "all" : "hover"}
+          lockView={lockView}
           onNodeClick={handleNodeClick}
         />
         {status && <div className="status-banner">{status}</div>}

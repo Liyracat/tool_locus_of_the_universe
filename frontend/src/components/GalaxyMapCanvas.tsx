@@ -38,6 +38,7 @@ export type GalaxyMapCanvasProps = {
   links: GalaxyLink[];
   edgeMode?: "hover" | "topN" | "all";
   topN?: number;
+  lockView?: boolean;
   onNodeHover?: (node: GalaxyNode | null) => void;
   onNodeClick?: (node: GalaxyNode) => void;
 };
@@ -54,6 +55,7 @@ const EDGE_WIDTH: Record<string, number> = {
   near: 1.25,
   part_of: 1.8,
   derived_from: 1.4,
+  utterance_seed: 1.35,
   supports: 1.6,
   contrasts: 1.6,
   inspired_by: 1.6,
@@ -61,9 +63,10 @@ const EDGE_WIDTH: Record<string, number> = {
 };
 
 const EDGE_COLOR: Record<string, string> = {
-  near: "#c8e8ff",
+  near: "#82fe84",
   part_of: "#a5b4fc",
-  derived_from: "#93c5fd",
+  derived_from: "#a14747",
+  utterance_seed: "#7dd3fc",
   supports: "#fde68a",
   contrasts: "#fca5a5",
   inspired_by: "#fbcfe8",
@@ -79,6 +82,7 @@ export default function GalaxyMapCanvas({
   links,
   edgeMode = "hover",
   topN = 3,
+  lockView = false,
   onNodeHover,
   onNodeClick,
 }: GalaxyMapCanvasProps) {
@@ -531,11 +535,13 @@ export default function GalaxyMapCanvas({
         const scaleX = (viewWidth * 0.7) / spanX;
         const scaleY = (viewHeight * 0.7) / spanY;
         const nextScale = clamp(Math.min(scaleX, scaleY), 0.35, 2.4);
-        world.scale.set(nextScale);
-        world.x = viewWidth / 2 - ((minX + maxX) / 2) * nextScale;
-        world.y = viewHeight / 2 - ((minY + maxY) / 2) * nextScale;
-        panRef.current.x = world.x - viewWidth / 2;
-        panRef.current.y = world.y - viewHeight / 2;
+        if (!lockView) {
+          world.scale.set(nextScale);
+          world.x = viewWidth / 2 - ((minX + maxX) / 2) * nextScale;
+          world.y = viewHeight / 2 - ((minY + maxY) / 2) * nextScale;
+          panRef.current.x = world.x - viewWidth / 2;
+          panRef.current.y = world.y - viewHeight / 2;
+        }
         lastFitKeyRef.current = fitKey;
       }
     }
@@ -736,8 +742,11 @@ function drawAllEdges(nodes: GalaxyNode[], links: GalaxyLink[], graphics: Graphi
       continue;
     }
     const safeWeight = Number.isFinite(link.weight) ? link.weight : 0.35;
-    const width = (EDGE_WIDTH[link.link_type] ?? 1.2) * 1.4;
-    const color = new Color(EDGE_COLOR[link.link_type] || "#c7d2fe").toNumber();
+    const linkType =
+      link.link_type ||
+      (link.origin === "utterance_seed" ? "utterance_seed" : "near");
+    const width = (EDGE_WIDTH[linkType] ?? 1.2) * 1.4;
+    const color = new Color(EDGE_COLOR[linkType] || "#c7d2fe").toNumber();
     const alpha = clamp(safeWeight * 0.9, 0.3, 0.9);
     drawGlowLine(graphics, src.x, src.y, dst.x, dst.y, color, width, alpha);
     drawn += 1;

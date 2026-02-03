@@ -125,6 +125,13 @@ def _split_seed_lines(text: str) -> list[str]:
     return [segment for segment in parts if segment]
 
 
+def _format_cluster_overview(text: str) -> str:
+    cleaned = text.strip()
+    if not cleaned:
+        return cleaned
+    return re.sub(r"。\s*", "。\n", cleaned)
+
+
 def _ensure_numpy() -> None:
     global np
     if np is None:
@@ -815,6 +822,7 @@ def _handle_cluster_body(job: WorkerJob) -> None:
     )
     response = call_ollama(prompt)
     text = response.get("response", "") if isinstance(response, dict) else str(response)
+    text = _format_cluster_overview(text)
     with get_conn() as conn:
         conn.execute(
             """

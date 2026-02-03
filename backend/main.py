@@ -1331,32 +1331,31 @@ def get_map(
                     }
                 )
 
-        if include_orphans:
-            us_rows = conn.execute(
-                """
-                SELECT utterance_id, seed_id, relation_type, confidence, created_at
-                FROM utterance_seeds
-                WHERE seed_id NOT IN (
-                  SELECT seed_id FROM seeds
-                  WHERE review_status = 'rejected'
-                     OR (canonical_seed_id IS NOT NULL AND canonical_seed_id != '')
-                )
-                """,
-            ).fetchall()
-            for row in us_rows:
-                if row["seed_id"] not in node_ids:
-                    continue
-                links.append(
-                    {
-                        "id": f"us:{row['utterance_id']}:{row['seed_id']}:{row['relation_type']}",
-                        "src_id": row["utterance_id"],
-                        "dst_id": row["seed_id"],
-                        "link_type": row["relation_type"],
-                        "weight": row["confidence"] or 0.4,
-                        "is_active": True,
-                        "origin": "utterance_seed",
-                    }
-                )
+        us_rows = conn.execute(
+            """
+            SELECT utterance_id, seed_id, relation_type, confidence, created_at
+            FROM utterance_seeds
+            WHERE seed_id NOT IN (
+              SELECT seed_id FROM seeds
+              WHERE review_status = 'rejected'
+                 OR (canonical_seed_id IS NOT NULL AND canonical_seed_id != '')
+            )
+            """,
+        ).fetchall()
+        for row in us_rows:
+            if row["seed_id"] not in node_ids or row["utterance_id"] not in node_ids:
+                continue
+            links.append(
+                {
+                    "id": f"us:{row['utterance_id']}:{row['seed_id']}:{row['relation_type']}",
+                    "src_id": row["utterance_id"],
+                    "dst_id": row["seed_id"],
+                    "link_type": row["relation_type"],
+                    "weight": row["confidence"] or 0.4,
+                    "is_active": True,
+                    "origin": "utterance_seed",
+                }
+            )
 
     if keyword:
         keyword_lower = keyword.lower()
