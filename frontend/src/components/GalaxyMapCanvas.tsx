@@ -36,7 +36,7 @@ export type GalaxyLink = {
 export type GalaxyMapCanvasProps = {
   nodes: GalaxyNode[];
   links: GalaxyLink[];
-  edgeMode?: "hover" | "topN";
+  edgeMode?: "hover" | "topN" | "all";
   topN?: number;
   onNodeHover?: (node: GalaxyNode | null) => void;
   onNodeClick?: (node: GalaxyNode) => void;
@@ -71,6 +71,8 @@ const EDGE_COLOR: Record<string, string> = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const DEBUG_EDGE_DRAW = import.meta.env?.DEV ?? false;
+const FORCE_DEBUG_LINE = false;
 
 export default function GalaxyMapCanvas({
   nodes,
@@ -108,12 +110,22 @@ export default function GalaxyMapCanvas({
     y: number;
     visible: boolean;
   } | null>(null);
-  
+
   const [pixiReady, setPixiReady] = useState(false);
   const setupCleanupRef = useRef<null | (() => void)>(null);
+  const onNodeHoverRef = useRef<typeof onNodeHover>(onNodeHover);
+  const onNodeClickRef = useRef<typeof onNodeClick>(onNodeClick);
+  const lastFitKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    console.log("useEffect start", containerRef.current);
+    onNodeHoverRef.current = onNodeHover;
+  }, [onNodeHover]);
+
+  useEffect(() => {
+    onNodeClickRef.current = onNodeClick;
+  }, [onNodeClick]);
+
+  useEffect(() => {
     const host = containerRef.current;
     if (!host) return;
 
@@ -166,21 +178,46 @@ export default function GalaxyMapCanvas({
       const world = new Container();
       worldRef.current = world;
       app.stage.addChild(world);
+      world.sortableChildren = true;
+      app.stage.sortableChildren = true;
       world.x = width / 2;
       world.y = height / 2;
       sizeRef.current = { width, height };
 
       const edgesLayer = new Graphics();
+      edgesLayer.zIndex = 1;
+      edgesLayer.alpha = 1;
+      edgesLayer.visible = true;
+      edgesLayer.renderable = true;
       edgesRef.current = edgesLayer;
       world.addChild(edgesLayer);
 
       const nodesLayer = new Container();
+      nodesLayer.zIndex = 2;
       world.addChild(nodesLayer);
       nodesLayerRef.current = nodesLayer;
 
       const labelLayer = new Container();
+      labelLayer.zIndex = 3;
       world.addChild(labelLayer);
       labelsLayerRef.current = labelLayer;
+
+      world.sortChildren();
+
+      if (FORCE_DEBUG_LINE) {
+        const debugLine = new Graphics();
+        debugLine.zIndex = 9999;
+        debugLine.moveTo(30, 30);
+        debugLine.lineTo(width - 30, height - 30);
+        debugLine.stroke({
+          width: 6,
+          color: new Color("#22d3ee").toNumber(),
+          alpha: 1,
+          cap: "round",
+          join: "round",
+        });
+        app.stage.addChild(debugLine);
+      }
       
       setPixiReady(true);
 
@@ -432,7 +469,7 @@ export default function GalaxyMapCanvas({
           y: screenPoint.y,
           visible: true,
         });
-        onNodeHover?.(node);
+        onNodeHoverRef.current?.(node);
         if (edgeMode === "hover") {
           drawEdgesForNode(node.id, links, edgesLayer, nodesRef.current);
         }
@@ -444,14 +481,14 @@ export default function GalaxyMapCanvas({
         bloom.alpha = bloomAlpha;
         core.alpha = coreAlpha;
         setTooltip(null);
-        onNodeHover?.(null);
+        onNodeHoverRef.current?.(null);
         if (edgeMode === "hover") {
           edgesLayer.clear();
         }
       });
 
       star.on("pointertap", () => {
-        onNodeClick?.(node);
+        onNodeClickRef.current?.(node);
       });
 
       nodesLayer.addChild(star);
@@ -478,6 +515,8 @@ export default function GalaxyMapCanvas({
     });
 
     if (nodes.length) {
+      const fitKey = nodes.map((node) => `${node.id}:${node.x}:${node.y}`).join("|");
+      const shouldFit = lastFitKeyRef.current !== fitKey;
       const xs = nodes.map((node) => node.x);
       const ys = nodes.map((node) => node.y);
       const minX = Math.min(...xs);
@@ -488,20 +527,39 @@ export default function GalaxyMapCanvas({
       const spanY = Math.max(1, maxY - minY);
       const viewWidth = app.renderer.width;
       const viewHeight = app.renderer.height;
-      const scaleX = (viewWidth * 0.7) / spanX;
-      const scaleY = (viewHeight * 0.7) / spanY;
-      const nextScale = clamp(Math.min(scaleX, scaleY), 0.35, 2.4);
-      world.scale.set(nextScale);
-      world.x = viewWidth / 2 - ((minX + maxX) / 2) * nextScale;
-      world.y = viewHeight / 2 - ((minY + maxY) / 2) * nextScale;
-      panRef.current.x = world.x - viewWidth / 2;
-      panRef.current.y = world.y - viewHeight / 2;
+      if (shouldFit) {
+        const scaleX = (viewWidth * 0.7) / spanX;
+        const scaleY = (viewHeight * 0.7) / spanY;
+        const nextScale = clamp(Math.min(scaleX, scaleY), 0.35, 2.4);
+        world.scale.set(nextScale);
+        world.x = viewWidth / 2 - ((minX + maxX) / 2) * nextScale;
+        world.y = viewHeight / 2 - ((minY + maxY) / 2) * nextScale;
+        panRef.current.x = world.x - viewWidth / 2;
+        panRef.current.y = world.y - viewHeight / 2;
+        lastFitKeyRef.current = fitKey;
+      }
     }
 
     if (edgeMode === "topN") {
       drawTopEdges(nodes, links, edgesLayer, topN);
+    } else if (edgeMode === "all") {
+      drawAllEdges(nodes, links, edgesLayer);
     } else {
       edgesLayer.clear();
+    }
+
+    if (FORCE_DEBUG_LINE && nodes.length >= 2) {
+      const a = nodes[0];
+      const b = nodes[1];
+      edgesLayer.moveTo(a.x, a.y);
+      edgesLayer.lineTo(b.x, b.y);
+      edgesLayer.stroke({
+        width: 4,
+        color: new Color("#f97316").toNumber(),
+        alpha: 1,
+        cap: "round",
+        join: "round",
+      });
     }
 
     const cull = () => {
@@ -526,7 +584,7 @@ export default function GalaxyMapCanvas({
         app.ticker.remove(cull);
       }
     };
-  }, [pixiReady, nodes, links, edgeMode, topN, onNodeHover, onNodeClick]);
+  }, [pixiReady, nodes, links, edgeMode, topN]);
 
   return (
     <div className="galaxy-canvas-shell" ref={containerRef}>
@@ -599,7 +657,7 @@ function drawEdgesForNode(
   graphics.clear();
   graphics.blendMode = "add";
   for (const link of links) {
-    if (!link.is_active) continue;
+    if (link.is_active === false) continue;
     if (link.link_type !== "near") continue;
     if (link.src_id !== nodeId && link.dst_id !== nodeId) continue;
     const srcNodeGraphic = nodeGraphics.get(link.src_id);
@@ -607,9 +665,10 @@ function drawEdgesForNode(
 
     if (!srcNodeGraphic || !dstNodeGraphic) continue;
 
+    const safeWeight = Number.isFinite(link.weight) ? link.weight : 0.4;
     const color = new Color(EDGE_COLOR[link.link_type] || "#c7d2fe").toNumber();
     const width = EDGE_WIDTH[link.link_type] ?? 1.2;
-    const alpha = clamp(link.weight * 0.9, 0.15, 0.75);
+    const alpha = clamp(safeWeight * 0.9, 0.15, 0.75);
     drawGlowLine(
       graphics,
       srcNodeGraphic.x,
@@ -633,7 +692,7 @@ function drawTopEdges(
   graphics.blendMode = "add";
   const adjacency = new Map<string, GalaxyLink[]>();
   links.forEach((link) => {
-    if (!link.is_active) return;
+    if (link.is_active === false) return;
     if (link.link_type !== "near") return;
     const list = adjacency.get(link.src_id) ?? [];
     list.push(link);
@@ -651,10 +710,43 @@ function drawTopEdges(
       const src = nodeMap.get(link.src_id);
       const dst = nodeMap.get(link.dst_id);
       if (!src || !dst) return;
+      const safeWeight = Number.isFinite(link.weight) ? link.weight : 0.4;
       const width = EDGE_WIDTH[link.link_type] ?? 1.2;
       const color = new Color(EDGE_COLOR[link.link_type] || "#c7d2fe").toNumber();
-      const alpha = clamp(link.weight * 0.9, 0.15, 0.65);
+      const alpha = clamp(safeWeight * 0.9, 0.15, 0.65);
       drawGlowLine(graphics, src.x, src.y, dst.x, dst.y, color, width, alpha);
+    });
+  }
+}
+
+function drawAllEdges(nodes: GalaxyNode[], links: GalaxyLink[], graphics: Graphics) {
+  graphics.clear();
+  graphics.blendMode = "normal";
+  const nodeMap = new Map<string, GalaxyNode>();
+  nodes.forEach((node) => nodeMap.set(node.id, node));
+
+  let drawn = 0;
+  let missing = 0;
+  for (const link of links) {
+    if (link.is_active === false) continue;
+    const src = nodeMap.get(link.src_id);
+    const dst = nodeMap.get(link.dst_id);
+    if (!src || !dst) {
+      missing += 1;
+      continue;
+    }
+    const safeWeight = Number.isFinite(link.weight) ? link.weight : 0.35;
+    const width = (EDGE_WIDTH[link.link_type] ?? 1.2) * 1.4;
+    const color = new Color(EDGE_COLOR[link.link_type] || "#c7d2fe").toNumber();
+    const alpha = clamp(safeWeight * 0.9, 0.3, 0.9);
+    drawGlowLine(graphics, src.x, src.y, dst.x, dst.y, color, width, alpha);
+    drawn += 1;
+  }
+
+  if (DEBUG_EDGE_DRAW && links.length > 0 && drawn === 0) {
+    console.debug("drawAllEdges: nothing drawn", {
+      links: links.length,
+      missingEndpoints: missing,
     });
   }
 }
@@ -670,35 +762,35 @@ function drawGlowLine(
   alpha: number
 ) {
   // outer glow
-  g.lineStyle({
+  g.moveTo(x1, y1);
+  g.lineTo(x2, y2);
+  g.stroke({
     width: baseWidth * 2.6,
     color,
     alpha: clamp(alpha * 0.22, 0.03, 0.25),
     cap: "round",
     join: "round",
   });
-  g.moveTo(x1, y1);
-  g.lineTo(x2, y2);
 
   // mid glow
-  g.lineStyle({
+  g.moveTo(x1, y1);
+  g.lineTo(x2, y2);
+  g.stroke({
     width: baseWidth * 1.7,
     color,
     alpha: clamp(alpha * 0.35, 0.05, 0.35),
     cap: "round",
     join: "round",
   });
-  g.moveTo(x1, y1);
-  g.lineTo(x2, y2);
 
   // core
-  g.lineStyle({
+  g.moveTo(x1, y1);
+  g.lineTo(x2, y2);
+  g.stroke({
     width: baseWidth,
     color,
     alpha: clamp(alpha, 0.08, 0.75),
     cap: "round",
     join: "round",
   });
-  g.moveTo(x1, y1);
-  g.lineTo(x2, y2);
 }

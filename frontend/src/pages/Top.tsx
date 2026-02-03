@@ -190,6 +190,7 @@ export default function TopPage() {
   const [mergeCandidates, setMergeCandidates] = useState<SeedMergeCandidate[]>([]);
   const [mergePanelOpen, setMergePanelOpen] = useState(false);
   const [selectedMergeCandidateId, setSelectedMergeCandidateId] = useState<string | null>(null);
+  const [edgeVisible, setEdgeVisible] = useState(false);
   const [editState, setEditState] = useState<{
     seed_type?: string;
     review_status?: string;
@@ -247,6 +248,7 @@ export default function TopPage() {
     [mapData, useMock]
   );
   const links = useMemo(() => convertLinks(mapData?.links ?? []), [mapData]);
+  const linksForRender = useMemo(() => (edgeVisible ? links : []), [edgeVisible, links]);
 
   const drillDownCluster = async (node: GalaxyNode) => {
     if (useMock) return;
@@ -425,16 +427,13 @@ export default function TopPage() {
           </div>
         </div>
         <div className="filter-row">
-          <button className="filter-chip">
-            カテゴリ: <strong>俯瞰</strong>
+          <button
+            type="button"
+            className="filter-chip"
+            onClick={() => setEdgeVisible((prev) => !prev)}
+          >
+            edge: <strong>{edgeVisible ? "表示" : "非表示"}</strong>
           </button>
-          <button className="filter-chip">
-            顕在意識: <strong>偽</strong>
-          </button>
-          <button className="filter-chip">
-            顕在意識: <strong>善</strong>
-          </button>
-          <button className="filter-chip add">＋ フィルタ</button>
         </div>
       </div>
 
@@ -442,8 +441,8 @@ export default function TopPage() {
         <GalaxyMapCanvas
           key={`${currentView?.view ?? "global"}:${currentView?.cluster_id ?? "root"}`}
           nodes={nodes}
-          links={links}
-          edgeMode="hover"
+          links={linksForRender}
+          edgeMode={edgeVisible ? "all" : "hover"}
           onNodeClick={handleNodeClick}
         />
         {status && <div className="status-banner">{status}</div>}
