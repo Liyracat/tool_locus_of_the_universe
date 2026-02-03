@@ -329,7 +329,7 @@ def list_worker_jobs() -> List[WorkerJob]:
         rows = conn.execute(
             """
             SELECT job_id, job_type, target_table, target_id, status, error,
-                   updated_at
+                   created_at
             FROM worker_jobs
             ORDER BY priority ASC, created_at ASC
             """

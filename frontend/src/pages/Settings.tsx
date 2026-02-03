@@ -482,7 +482,7 @@ export default function SettingsPage() {
                 <th>target</th>
                 <th>status</th>
                 <th>error</th>
-                <th>updated_at</th>
+                <th>created_at</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -502,7 +502,7 @@ export default function SettingsPage() {
                   </td>
                   <td>{job.status}</td>
                   <td>{job.error ?? ""}</td>
-                  <td>{job.updated_at}</td>
+                  <td>{job.created_at}</td>
                   <td>
                     {(job.status === "processing" || job.status === "failed") && (
                       <button type="button" className="button tiny" onClick={() => retryJob(job.job_id)}>

@@ -56,7 +56,7 @@ export type WorkerJob = {
   target_id: string;
   status: string;
   error?: string | null;
-  updated_at: string;
+  created_at: string;
 };
 
 export type MapNode = {

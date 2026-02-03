@@ -76,7 +76,7 @@ class WorkerJob(BaseModel):
     target_id: str
     status: str
     error: Optional[str] = None
-    updated_at: str
+    created_at: str
 
 
 class UtteranceUpdate(BaseModel):
