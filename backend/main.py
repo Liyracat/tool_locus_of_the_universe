@@ -874,6 +874,72 @@ def list_seed_merge_candidates(seed_b_id: str) -> List[SeedMergeCandidateItem]:
     return [SeedMergeCandidateItem(**dict(row)) for row in rows]
 
 
+@app.get("/seed-merge-candidates/all")
+def list_seed_merge_candidates_all(limit: int = 50, offset: int = 0) -> dict:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    with get_conn() as conn:
+        total_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM seed_merge_candidates WHERE status = 'proposed'"
+        ).fetchone()
+        total = total_row["cnt"] if total_row else 0
+        rows = conn.execute(
+            """
+            SELECT c.candidate_id, c.seed_a_id, c.seed_b_id, c.reason, c.similarity,
+                   sa.body AS seed_a_body, sb.body AS seed_b_body
+            FROM seed_merge_candidates c
+            LEFT JOIN seeds sa ON sa.seed_id = c.seed_a_id
+            LEFT JOIN seeds sb ON sb.seed_id = c.seed_b_id
+            WHERE c.status = 'proposed'
+            ORDER BY c.created_at DESC
+            LIMIT :limit OFFSET :offset
+            """,
+            {"limit": limit, "offset": offset},
+        ).fetchall()
+    items = [
+        {
+            "candidate_id": row["candidate_id"],
+            "seed_a_id": row["seed_a_id"],
+            "seed_b_id": row["seed_b_id"],
+            "reason": row["reason"],
+            "similarity": row["similarity"],
+            "seed_a_body": row["seed_a_body"],
+            "seed_b_body": row["seed_b_body"],
+        }
+        for row in rows
+    ]
+    return {"items": items, "total": total}
+
+
+@app.get("/seeds/unreviewed")
+def list_unreviewed_seeds(limit: int = 50, offset: int = 0) -> dict:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    with get_conn() as conn:
+        total_row = conn.execute(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM seeds
+            WHERE review_status = 'auto'
+              AND (canonical_seed_id IS NULL OR canonical_seed_id = '')
+            """
+        ).fetchone()
+        total = total_row["cnt"] if total_row else 0
+        rows = conn.execute(
+            """
+            SELECT seed_id, seed_type, body
+            FROM seeds
+            WHERE review_status = 'auto'
+              AND (canonical_seed_id IS NULL OR canonical_seed_id = '')
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+            """,
+            {"limit": limit, "offset": offset},
+        ).fetchall()
+    items = [dict(row) for row in rows]
+    return {"items": items, "total": total}
+
+
 @app.put("/seed-merge-candidates/{candidate_id}", response_model=dict)
 def update_seed_merge_candidate_status(candidate_id: str, payload: SeedMergeCandidateStatusUpdate) -> dict:
     if payload.status not in ("proposed", "merged", "rejected"):

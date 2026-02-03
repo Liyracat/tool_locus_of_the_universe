@@ -100,6 +100,22 @@ export type SeedMergeCandidate = {
   body?: string | null;
 };
 
+export type SeedMergeCandidateListItem = {
+  candidate_id: string;
+  seed_a_id: string;
+  seed_b_id: string;
+  reason: string;
+  similarity?: number | null;
+  seed_a_body?: string | null;
+  seed_b_body?: string | null;
+};
+
+export type UnreviewedSeed = {
+  seed_id: string;
+  seed_type: string;
+  body?: string | null;
+};
+
 export type WorkerTargetInfo = {
   target_table: "utterance_split" | "seed" | string;
   target_id: string;
@@ -246,6 +262,15 @@ export const api = {
     const query = new URLSearchParams({ seed_b_id });
     return request<SeedMergeCandidate[]>(`/api/seed-merge-candidates?${query.toString()}`);
   },
+  listSeedMergeCandidatesAll(page: number, limit: number) {
+    const query = new URLSearchParams({
+      limit: String(limit),
+      offset: String((page - 1) * limit),
+    });
+    return request<{ items: SeedMergeCandidateListItem[]; total: number }>(
+      `/api/seed-merge-candidates/all?${query.toString()}`
+    );
+  },
   updateSeedMergeCandidate(candidate_id: string, status: "proposed" | "merged" | "rejected") {
     return request<{ candidate_id: string; status: string }>(`/api/seed-merge-candidates/${candidate_id}`, {
       method: "PUT",
@@ -287,6 +312,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  },
+  listUnreviewedSeeds(page: number, limit: number) {
+    const query = new URLSearchParams({
+      limit: String(limit),
+      offset: String((page - 1) * limit),
+    });
+    return request<{ items: UnreviewedSeed[]; total: number }>(`/api/seeds/unreviewed?${query.toString()}`);
   },
   getMap(params?: {
     view?: "global" | "cluster";

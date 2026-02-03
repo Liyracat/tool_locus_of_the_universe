@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, Speaker, UtteranceRole, WorkerJob, WorkerTargetInfo } from "../api";
+import {
+  api,
+  SeedMergeCandidateListItem,
+  Speaker,
+  UnreviewedSeed,
+  UtteranceRole,
+  WorkerJob,
+  WorkerTargetInfo,
+} from "../api";
 
 const emptySpeaker = {
   speaker_name: "",
@@ -18,6 +26,8 @@ export default function SettingsPage() {
   const [showSpeakers, setShowSpeakers] = useState(false);
   const [showRoles, setShowRoles] = useState(false);
   const [jobPage, setJobPage] = useState(1);
+  const [mergePage, setMergePage] = useState(1);
+  const [seedPage, setSeedPage] = useState(1);
   const [splitTargetType, setSplitTargetType] = useState("");
   const [splitTargetId, setSplitTargetId] = useState("");
   const [splitUpperText, setSplitUpperText] = useState("");
@@ -28,6 +38,10 @@ export default function SettingsPage() {
   const [roleForm, setRoleForm] = useState({ ...emptyRole });
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [mergeCandidates, setMergeCandidates] = useState<SeedMergeCandidateListItem[]>([]);
+  const [mergeTotal, setMergeTotal] = useState(0);
+  const [unreviewedSeeds, setUnreviewedSeeds] = useState<UnreviewedSeed[]>([]);
+  const [unreviewedTotal, setUnreviewedTotal] = useState(0);
 
   const loadAll = async () => {
     try {
@@ -52,10 +66,48 @@ export default function SettingsPage() {
   const totalJobPages = Math.max(1, Math.ceil(workerJobs.length / jobsPerPage));
   const jobStart = (jobPage - 1) * jobsPerPage;
   const pagedJobs = workerJobs.slice(jobStart, jobStart + jobsPerPage);
+  const mergePerPage = 50;
+  const seedPerPage = 50;
+  const totalMergePages = Math.max(1, Math.ceil(mergeTotal / mergePerPage));
+  const totalSeedPages = Math.max(1, Math.ceil(unreviewedTotal / seedPerPage));
 
   useEffect(() => {
     setJobPage((prev) => Math.min(prev, totalJobPages));
   }, [totalJobPages]);
+
+  useEffect(() => {
+    const loadMergeCandidates = async () => {
+      try {
+        const result = await api.listSeedMergeCandidatesAll(mergePage, mergePerPage);
+        setMergeCandidates(result.items);
+        setMergeTotal(result.total);
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : "統合候補の取得に失敗しました");
+      }
+    };
+    void loadMergeCandidates();
+  }, [mergePage]);
+
+  useEffect(() => {
+    const loadSeeds = async () => {
+      try {
+        const result = await api.listUnreviewedSeeds(seedPage, seedPerPage);
+        setUnreviewedSeeds(result.items);
+        setUnreviewedTotal(result.total);
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : "未レビューseedの取得に失敗しました");
+      }
+    };
+    void loadSeeds();
+  }, [seedPage]);
+
+  useEffect(() => {
+    setMergePage((prev) => Math.min(prev, totalMergePages));
+  }, [totalMergePages]);
+
+  useEffect(() => {
+    setSeedPage((prev) => Math.min(prev, totalSeedPages));
+  }, [totalSeedPages]);
 
   const submitSpeaker = async () => {
     setStatus(null);
@@ -209,6 +261,63 @@ export default function SettingsPage() {
       setStatus("target_typeを選択してください。");
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "保存に失敗しました");
+    }
+  };
+
+  const handleMergeApprove = async (candidate: SeedMergeCandidateListItem) => {
+    setStatus(null);
+    try {
+      const related = await api.listSeedMergeCandidates(candidate.seed_b_id);
+      const rejectIds = related
+        .map((item) => item.candidate_id)
+        .filter((id) => id !== candidate.candidate_id);
+      await api.updateSeed({
+        seed_id: candidate.seed_b_id,
+        seed_type: "seed",
+        body: candidate.seed_b_body ?? "",
+        canonical_seed_id: candidate.seed_a_id,
+        review_status: null,
+      });
+      await api.resolveSeedMergeCandidates({
+        merged_candidate_id: candidate.candidate_id,
+        reject_candidate_ids: rejectIds,
+      });
+      await loadAll();
+      const refreshed = await api.listSeedMergeCandidatesAll(mergePage, mergePerPage);
+      setMergeCandidates(refreshed.items);
+      setMergeTotal(refreshed.total);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "統合に失敗しました");
+    }
+  };
+
+  const handleMergeReject = async (candidate: SeedMergeCandidateListItem) => {
+    setStatus(null);
+    try {
+      await api.updateSeedMergeCandidate(candidate.candidate_id, "rejected");
+      const refreshed = await api.listSeedMergeCandidatesAll(mergePage, mergePerPage);
+      setMergeCandidates(refreshed.items);
+      setMergeTotal(refreshed.total);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "却下に失敗しました");
+    }
+  };
+
+  const handleSeedReview = async (seed: UnreviewedSeed, nextStatus: "reviewed" | "rejected") => {
+    setStatus(null);
+    try {
+      await api.updateSeed({
+        seed_id: seed.seed_id,
+        seed_type: seed.seed_type,
+        body: seed.body ?? "",
+        canonical_seed_id: null,
+        review_status: nextStatus,
+      });
+      const refreshed = await api.listUnreviewedSeeds(seedPage, seedPerPage);
+      setUnreviewedSeeds(refreshed.items);
+      setUnreviewedTotal(refreshed.total);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "更新に失敗しました");
     }
   };
 
@@ -540,6 +649,144 @@ export default function SettingsPage() {
               className="button tiny ghost"
               onClick={() => setJobPage((prev) => Math.min(totalJobPages, prev + 1))}
               disabled={jobPage >= totalJobPages}
+            >
+              次へ
+            </button>
+          </div>
+        )}
+
+        <div className="panel-row">
+          <div className="section-title">seed_merge_candidates 一覧</div>
+        </div>
+        <div className="table-wrapper">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>seed_a contents</th>
+                <th>seed_b contents</th>
+                <th>reason</th>
+                <th>similarity</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mergeCandidates.map((item) => (
+                <tr key={item.candidate_id}>
+                  <td className="contents-cell">{item.seed_a_body ?? ""}</td>
+                  <td className="contents-cell">{item.seed_b_body ?? ""}</td>
+                  <td>{item.reason}</td>
+                  <td>{typeof item.similarity === "number" ? item.similarity.toFixed(3) : ""}</td>
+                  <td>
+                    <button type="button" className="button tiny" onClick={() => handleMergeApprove(item)}>
+                      統合
+                    </button>
+                    <button
+                      type="button"
+                      className="button tiny ghost"
+                      onClick={() => handleMergeReject(item)}
+                    >
+                      却下
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!mergeCandidates.length && (
+                <tr>
+                  <td colSpan={5} className="empty-cell">
+                    統合候補がありません。
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {totalMergePages > 1 && (
+          <div className="panel-row">
+            <button
+              type="button"
+              className="button tiny ghost"
+              onClick={() => setMergePage((prev) => Math.max(1, prev - 1))}
+              disabled={mergePage <= 1}
+            >
+              前へ
+            </button>
+            <div className="mono">
+              {mergePage} / {totalMergePages}
+            </div>
+            <button
+              type="button"
+              className="button tiny ghost"
+              onClick={() => setMergePage((prev) => Math.min(totalMergePages, prev + 1))}
+              disabled={mergePage >= totalMergePages}
+            >
+              次へ
+            </button>
+          </div>
+        )}
+
+        <div className="panel-row">
+          <div className="section-title">未レビュー seeds 一覧</div>
+        </div>
+        <div className="table-wrapper">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>seed_type</th>
+                <th>body</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {unreviewedSeeds.map((seed) => (
+                <tr key={seed.seed_id}>
+                  <td>{seed.seed_type}</td>
+                  <td className="contents-cell">{seed.body ?? ""}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="button tiny"
+                      onClick={() => handleSeedReview(seed, "reviewed")}
+                    >
+                      承認
+                    </button>
+                    <button
+                      type="button"
+                      className="button tiny ghost"
+                      onClick={() => handleSeedReview(seed, "rejected")}
+                    >
+                      却下
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!unreviewedSeeds.length && (
+                <tr>
+                  <td colSpan={3} className="empty-cell">
+                    未レビューのseedがありません。
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {totalSeedPages > 1 && (
+          <div className="panel-row">
+            <button
+              type="button"
+              className="button tiny ghost"
+              onClick={() => setSeedPage((prev) => Math.max(1, prev - 1))}
+              disabled={seedPage <= 1}
+            >
+              前へ
+            </button>
+            <div className="mono">
+              {seedPage} / {totalSeedPages}
+            </div>
+            <button
+              type="button"
+              className="button tiny ghost"
+              onClick={() => setSeedPage((prev) => Math.min(totalSeedPages, prev + 1))}
+              disabled={seedPage >= totalSeedPages}
             >
               次へ
             </button>
