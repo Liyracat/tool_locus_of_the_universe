@@ -211,7 +211,7 @@ def _prompt_knowledge_seed(utterance: dict) -> str:
     )
 
 
-def fetch_next_jobs(limit: int = 10000) -> list[WorkerJob]:
+def fetch_next_jobs(limit: int = 1000000) -> list[WorkerJob]:
     with get_conn() as conn:
         rows = conn.execute(
             """
@@ -241,7 +241,7 @@ def _update_job_status(job_id: str, status: str, error: str | None = None) -> No
         )
 
 
-def run_worker_batch(limit: int = 10000) -> None:
+def run_worker_batch(limit: int = 1000000) -> None:
     jobs = fetch_next_jobs(limit=limit)
     if not jobs:
         logger.info("No queued jobs.")

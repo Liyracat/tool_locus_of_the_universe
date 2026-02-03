@@ -111,3 +111,24 @@ class SeedMergeCandidateStatusUpdate(BaseModel):
 class SeedMergeResolveRequest(BaseModel):
     merged_candidate_id: str
     reject_candidate_ids: List[str] = []
+
+
+class WorkerTargetInfo(BaseModel):
+    target_table: str
+    target_id: str
+    contents: Optional[str] = None
+    utterance_id: Optional[str] = None
+    seed_type: Optional[str] = None
+    created_from: Optional[str] = None
+
+
+class SplitEditorUtteranceSplitRequest(BaseModel):
+    utterance_split_id: str
+    contents_top: str
+    contents_bottom: str
+
+
+class SplitEditorSeedRequest(BaseModel):
+    seed_id: str
+    body_top: str
+    body_bottom: str

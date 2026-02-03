@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, Speaker, UtteranceRole, WorkerJob } from "../api";
+import { api, Speaker, UtteranceRole, WorkerJob, WorkerTargetInfo } from "../api";
 
 const emptySpeaker = {
   speaker_name: "",
@@ -18,6 +18,11 @@ export default function SettingsPage() {
   const [showSpeakers, setShowSpeakers] = useState(false);
   const [showRoles, setShowRoles] = useState(false);
   const [jobPage, setJobPage] = useState(1);
+  const [splitTargetType, setSplitTargetType] = useState("");
+  const [splitTargetId, setSplitTargetId] = useState("");
+  const [splitUpperText, setSplitUpperText] = useState("");
+  const [splitLowerText, setSplitLowerText] = useState("");
+  const [splitUpperMeta, setSplitUpperMeta] = useState<WorkerTargetInfo | null>(null);
   const [speakerForm, setSpeakerForm] = useState({ ...emptySpeaker });
   const [editingSpeakerId, setEditingSpeakerId] = useState<string | null>(null);
   const [roleForm, setRoleForm] = useState({ ...emptyRole });
@@ -147,6 +152,52 @@ export default function SettingsPage() {
       await loadAll();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "ロール削除に失敗しました");
+    }
+  };
+
+  const handleSelectWorkerTarget = async (job: WorkerJob) => {
+    if (job.target_table !== "utterance_split" && job.target_table !== "seed") return;
+    setStatus(null);
+    try {
+      const info = await api.getWorkerTarget(job.target_table, job.target_id);
+      setSplitTargetType(info.target_table);
+      setSplitTargetId(info.target_id);
+      setSplitUpperText(info.contents ?? "");
+      setSplitLowerText("");
+      setSplitUpperMeta(info);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "対象データの取得に失敗しました");
+    }
+  };
+
+  const handleSplitSave = async () => {
+    setStatus(null);
+    try {
+      if (splitTargetType === "utterance_split" && splitTargetId) {
+        await api.saveUtteranceSplit({
+          utterance_split_id: splitTargetId,
+          contents_top: splitUpperText,
+          contents_bottom: splitLowerText,
+        });
+        setSplitLowerText("");
+        await loadAll();
+        setStatus("utterance_splitを保存しました。");
+        return;
+      }
+      if (splitTargetType === "seed" && splitTargetId) {
+        await api.saveSeedSplit({
+          seed_id: splitTargetId,
+          body_top: splitUpperText,
+          body_bottom: splitLowerText,
+        });
+        setSplitLowerText("");
+        await loadAll();
+        setStatus("seedを保存しました。");
+        return;
+      }
+      setStatus("target_typeを選択してください。");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "保存に失敗しました");
     }
   };
 
@@ -368,6 +419,46 @@ export default function SettingsPage() {
             successを削除
           </button>
         </div>
+        <div className="panel-row column">
+          <div className="section-title">utterance_split・seed 分割</div>
+          <div className="split-form">
+            <div className="split-form-actions">
+              <button type="button" className="button primary" onClick={handleSplitSave}>
+                保存
+              </button>
+            </div>
+            <div className="form-grid full-width split-form-grid">
+            <div className="field">
+              <label className="label">target_type</label>
+              <input className="input" value={splitTargetType} readOnly />
+            </div>
+            <div className="field">
+              <label className="label">上段</label>
+              <input
+                className="input"
+                value={splitUpperText}
+                onChange={(event) => setSplitUpperText(event.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label className="label">下段</label>
+              <input
+                className="input"
+                value={splitLowerText}
+                onChange={(event) => setSplitLowerText(event.target.value)}
+              />
+            </div>
+            </div>
+          </div>
+          {splitUpperMeta?.target_table === "seed" && (
+            <div className="form-hint">
+              seed_type: {splitUpperMeta.seed_type ?? ""} / created_from: {splitUpperMeta.created_from ?? ""}
+            </div>
+          )}
+          {splitUpperMeta?.target_table === "utterance_split" && (
+            <div className="form-hint">utterance_id: {splitUpperMeta.utterance_id ?? ""}</div>
+          )}
+        </div>
         <div className="table-wrapper">
           <table className="table">
             <thead>
@@ -386,7 +477,15 @@ export default function SettingsPage() {
                 <tr key={job.job_id}>
                   <td className="mono">{job.job_id}</td>
                   <td>{job.job_type}</td>
-                  <td>{job.target_table}:{job.target_id}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="text-link"
+                      onClick={() => handleSelectWorkerTarget(job)}
+                    >
+                      {job.target_table}:{job.target_id}
+                    </button>
+                  </td>
                   <td>{job.status}</td>
                   <td>{job.error ?? ""}</td>
                   <td>{job.updated_at}</td>

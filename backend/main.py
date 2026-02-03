@@ -24,6 +24,9 @@ try:
         SeedMergeCandidateItem,
         SeedMergeCandidateStatusUpdate,
         SeedMergeResolveRequest,
+        WorkerTargetInfo,
+        SplitEditorUtteranceSplitRequest,
+        SplitEditorSeedRequest,
     )
     from .import_splitter import split_import_text
 except ImportError:
@@ -45,6 +48,9 @@ except ImportError:
         SeedMergeCandidateItem,
         SeedMergeCandidateStatusUpdate,
         SeedMergeResolveRequest,
+        WorkerTargetInfo,
+        SplitEditorUtteranceSplitRequest,
+        SplitEditorSeedRequest,
     )
     from import_splitter import split_import_text
 
@@ -730,6 +736,194 @@ def resolve_seed_merge_candidates(payload: SeedMergeResolveRequest) -> dict:
                 payload.reject_candidate_ids,
             )
     return {"status": "ok"}
+
+
+@app.get("/worker-target", response_model=WorkerTargetInfo)
+def get_worker_target(target_table: str, target_id: str) -> WorkerTargetInfo:
+    with get_conn() as conn:
+        if target_table == "utterance_split":
+            row = conn.execute(
+                """
+                SELECT utterance_split_id, utterance_id, contents, length
+                FROM utterance_splits
+                WHERE utterance_split_id = :utterance_split_id
+                """,
+                {"utterance_split_id": target_id},
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="utterance_split not found")
+            return WorkerTargetInfo(
+                target_table=target_table,
+                target_id=row["utterance_split_id"],
+                contents=row["contents"],
+                utterance_id=row["utterance_id"],
+            )
+        if target_table == "seed":
+            row = conn.execute(
+                """
+                SELECT seed_id, seed_type, body, created_from
+                FROM seeds
+                WHERE seed_id = :seed_id
+                """,
+                {"seed_id": target_id},
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="seed not found")
+            return WorkerTargetInfo(
+                target_table=target_table,
+                target_id=row["seed_id"],
+                contents=row["body"],
+                seed_type=row["seed_type"],
+                created_from=row["created_from"],
+            )
+    raise HTTPException(status_code=400, detail="unsupported target_table")
+
+
+@app.post("/split-editor/utterance-split", status_code=200)
+def split_editor_utterance_split(payload: SplitEditorUtteranceSplitRequest) -> dict:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT utterance_id
+            FROM utterance_splits
+            WHERE utterance_split_id = :utterance_split_id
+            """,
+            {"utterance_split_id": payload.utterance_split_id},
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="utterance_split not found")
+        utterance_id = row["utterance_id"]
+
+        conn.execute(
+            """
+            UPDATE utterance_splits
+            SET contents = :contents,
+                length = :length
+            WHERE utterance_split_id = :utterance_split_id
+            """,
+            {
+                "utterance_split_id": payload.utterance_split_id,
+                "contents": payload.contents_top,
+                "length": len(payload.contents_top),
+            },
+        )
+
+        new_split_id = str(uuid.uuid4())
+        conn.execute(
+            """
+            INSERT INTO utterance_splits (
+              utterance_split_id, utterance_id, contents, length, created_at
+            ) VALUES (
+              :utterance_split_id, :utterance_id, :contents, :length, datetime('now')
+            )
+            """,
+            {
+                "utterance_split_id": new_split_id,
+                "utterance_id": utterance_id,
+                "contents": payload.contents_bottom,
+                "length": len(payload.contents_bottom),
+            },
+        )
+
+        conn.execute(
+            """
+            INSERT INTO worker_jobs (
+              job_id, job_type, target_table, target_id,
+              status, priority, created_at, updated_at, expires_at
+            ) VALUES (
+              :job_id, 'embedding', 'utterance_split', :target_id,
+              'queued', 10, datetime('now'), datetime('now'), datetime('now')
+            )
+            """,
+            {
+                "job_id": str(uuid.uuid4()),
+                "target_id": new_split_id,
+            },
+        )
+    return {"status": "ok", "utterance_split_id": new_split_id}
+
+
+@app.post("/split-editor/seed", status_code=200)
+def split_editor_seed(payload: SplitEditorSeedRequest) -> dict:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT seed_type, created_from
+            FROM seeds
+            WHERE seed_id = :seed_id
+            """,
+            {"seed_id": payload.seed_id},
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="seed not found")
+        seed_type = row["seed_type"]
+        created_from = row["created_from"]
+
+        conn.execute(
+            """
+            UPDATE seeds
+            SET body = :body,
+                updated_at = datetime('now')
+            WHERE seed_id = :seed_id
+            """,
+            {"seed_id": payload.seed_id, "body": payload.body_top},
+        )
+
+        new_seed_id = str(uuid.uuid4())
+        conn.execute(
+            """
+            INSERT INTO seeds (
+              seed_id, seed_type, title, body, created_from,
+              review_status, created_at, updated_at
+            ) VALUES (
+              :seed_id, :seed_type, NULL, :body, :created_from,
+              'auto', datetime('now'), datetime('now')
+            )
+            """,
+            {
+                "seed_id": new_seed_id,
+                "seed_type": seed_type,
+                "body": payload.body_bottom,
+                "created_from": created_from,
+            },
+        )
+
+        utterance_rows = conn.execute(
+            """
+            SELECT DISTINCT utterance_id
+            FROM utterance_seeds
+            WHERE seed_id = :seed_id
+            """,
+            {"seed_id": payload.seed_id},
+        ).fetchall()
+        for row in utterance_rows:
+            conn.execute(
+                """
+                INSERT INTO utterance_seeds (
+                  utterance_id, seed_id, relation_type, confidence, created_at
+                ) VALUES (
+                  :utterance_id, :seed_id, 'derived_from', NULL, datetime('now')
+                )
+                """,
+                {"utterance_id": row["utterance_id"], "seed_id": new_seed_id},
+            )
+
+        conn.execute(
+            """
+            INSERT INTO worker_jobs (
+              job_id, job_type, target_table, target_id,
+              status, priority, created_at, updated_at, expires_at
+            ) VALUES (
+              :job_id, 'embedding', 'seed', :target_id,
+              'queued', 10, datetime('now'), datetime('now'), datetime('now')
+            )
+            """,
+            {
+                "job_id": str(uuid.uuid4()),
+                "target_id": new_seed_id,
+            },
+        )
+    return {"status": "ok", "seed_id": new_seed_id}
 
 
 def _build_in_clause(values: List[str], prefix: str) -> tuple[str, dict]:

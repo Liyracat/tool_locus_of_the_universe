@@ -257,6 +257,11 @@ body {
   margin-top: 12px;
 }
 
+.form-hint {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.7);
+}
+
 .readonly {
   padding: 10px 12px;
   border-radius: 12px;
@@ -369,6 +374,7 @@ body {
 
 .panel-row.column {
   align-items: stretch;
+  flex-direction: column;
 }
 
 .section-title {
@@ -457,6 +463,25 @@ select.input {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   align-items: end;
+}
+
+.form-grid.full-width {
+  grid-template-columns: 1fr;
+}
+
+.split-form {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.split-form-actions {
+  align-self: start;
+}
+
+.split-form-grid {
+  margin-top: 0;
 }
 
 .field {

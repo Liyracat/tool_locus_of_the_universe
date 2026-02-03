@@ -100,6 +100,15 @@ export type SeedMergeCandidate = {
   body?: string | null;
 };
 
+export type WorkerTargetInfo = {
+  target_table: "utterance_split" | "seed" | string;
+  target_id: string;
+  contents?: string | null;
+  utterance_id?: string | null;
+  seed_type?: string | null;
+  created_from?: string | null;
+};
+
 export const api = {
   previewImport(raw_text: string) {
     return request<ImportPreviewResponse>("/api/import/preview", {
@@ -252,6 +261,26 @@ export const api = {
   purgeUnusedData() {
     return request<{ status: string; deleted: Record<string, number> }>(`/api/maintenance/purge`, {
       method: "DELETE",
+    });
+  },
+  getWorkerTarget(target_table: string, target_id: string) {
+    const query = new URLSearchParams({ target_table, target_id });
+    return request<WorkerTargetInfo>(`/api/worker-target?${query.toString()}`);
+  },
+  saveUtteranceSplit(payload: {
+    utterance_split_id: string;
+    contents_top: string;
+    contents_bottom: string;
+  }) {
+    return request<{ status: string; utterance_split_id: string }>(`/api/split-editor/utterance-split`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  saveSeedSplit(payload: { seed_id: string; body_top: string; body_bottom: string }) {
+    return request<{ status: string; seed_id: string }>(`/api/split-editor/seed`, {
+      method: "POST",
+      body: JSON.stringify(payload),
     });
   },
   getMap(params?: {
