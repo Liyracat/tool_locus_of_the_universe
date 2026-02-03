@@ -549,12 +549,8 @@ def reprioritize_worker_jobs() -> dict:
         if not jobs:
             return {"status": "ok", "updated": 0}
 
-        utterance_ids = {
-            row["target_id"] for row in jobs if row["target_table"] == "utterance"
-        }
-        utterance_split_ids = {
-            row["target_id"] for row in jobs if row["target_table"] == "utterance_split"
-        }
+        utterance_ids = {row["target_id"] for row in jobs if row["target_table"] == "utterance"}
+        utterance_split_ids = {row["target_id"] for row in jobs if row["target_table"] == "utterance_split"}
 
         utterance_splits_by_utterance: dict[str, list[str]] = {}
         if utterance_ids:
@@ -585,6 +581,26 @@ def reprioritize_worker_jobs() -> dict:
                 list(utterance_split_ids),
             ).fetchall()
             splits_with_embedding = {row["target_id"] for row in rows}
+
+        utterance_missing_embedding: set[str] = set()
+        if utterance_ids:
+            placeholders = ",".join("?" for _ in utterance_ids)
+            rows = conn.execute(
+                f"""
+                SELECT u.utterance_id
+                FROM utterance u
+                WHERE u.did_asked_knowledge = 1
+                  AND u.utterance_id IN ({placeholders})
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM embeddings e
+                    WHERE e.target_type = 'utterance'
+                      AND e.target_id = u.utterance_id
+                  )
+                """,
+                list(utterance_ids),
+            ).fetchall()
+            utterance_missing_embedding = {row["utterance_id"] for row in rows}
 
         utterance_with_seed_link: set[str] = set()
         if utterance_ids:
@@ -619,10 +635,11 @@ def reprioritize_worker_jobs() -> dict:
             if rule_id == 2:
                 return job["job_type"] == "embedding" and job["target_table"] == "seed"
             if rule_id == 3:
-                if job["job_type"] != "embedding_utterance" or job["target_table"] != "utterance":
-                    return False
-                split_ids = utterance_splits_by_utterance.get(job["target_id"], [])
-                return bool(split_ids) and all(split_id in splits_with_embedding for split_id in split_ids)
+                return (
+                    job["job_type"] == "embedding_utterance"
+                    and job["target_table"] == "utterance"
+                    and job["target_id"] in utterance_missing_embedding
+                )
             if rule_id == 4:
                 if job["job_type"] != "embedding" or job["target_table"] != "utterance_split":
                     return False
