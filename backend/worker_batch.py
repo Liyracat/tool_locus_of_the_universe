@@ -639,7 +639,7 @@ def _handle_embedding(job: WorkerJob) -> None:
         scored.append((t_type, t_id, float(score)))
 
     top20 = scored[:20]
-    top10 = scored[:10]
+    top5 = scored[:5]
     top_clusters = [item for item in top20 if item[0] == "cluster"][:2]
 
     cluster_edges_added = False
@@ -653,20 +653,20 @@ def _handle_embedding(job: WorkerJob) -> None:
             weight=score,
         )
         cluster_edges_added = True
-        _insert_layout_points_for_cluster_run(t_id, target_type, job.target_id, top10)
+        _insert_layout_points_for_cluster_run(t_id, target_type, job.target_id, top5)
         if target_type == "seed":
             utterance_ids = _fetch_utterance_ids_for_seed(job.target_id)
-            _insert_layout_points_for_cluster_run(t_id, "utterance", utterance_ids, top10)
+            _insert_layout_points_for_cluster_run(t_id, "utterance", utterance_ids, top5)
             _deactivate_global_points_for_utterances(utterance_ids)
 
     if not cluster_edges_added:
         layout_id = _ensure_global_layout_run()
-        _insert_layout_points(layout_id, target_type, job.target_id, top10)
+        _insert_layout_points(layout_id, target_type, job.target_id, top5)
         if target_type == "seed":
             utterance_ids = _fetch_utterance_ids_for_seed(job.target_id)
-            _insert_layout_points(layout_id, "utterance", utterance_ids, top10)
+            _insert_layout_points(layout_id, "utterance", utterance_ids, top5)
 
-    for t_type, t_id, score in top10:
+    for t_type, t_id, score in top5:
         _upsert_edge(
             src_type=target_type,
             src_id=job.target_id,

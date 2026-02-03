@@ -379,13 +379,13 @@ def _regenerate_edges() -> None:
             scored.append((t_type, t_id, float(score)))
 
         top20 = scored[:20]
-        top10 = scored[:10]
+        top5 = scored[:5]
         top_clusters = [item for item in top20 if item[0] == "cluster"][:2]
 
         desired = set()
         for t_type, t_id, score in top_clusters:
             desired.add(("part_of", t_type, t_id, score))
-        for t_type, t_id, score in top10:
+        for t_type, t_id, score in top5:
             desired.add(("near", t_type, t_id, score))
 
         with get_conn() as conn:
