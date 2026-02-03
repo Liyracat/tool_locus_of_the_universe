@@ -389,6 +389,14 @@ def purge_unused_data() -> dict:
             """
         )
         counts["seeds"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM worker_jobs
+            WHERE target_table = 'seed'
+              AND target_id NOT IN (SELECT seed_id FROM seeds)
+            """
+        )
+        counts["worker_jobs_seed_orphan"] = cur.rowcount or 0
 
         cur = conn.execute("DELETE FROM clusters WHERE is_archived = 1")
         counts["clusters"] = cur.rowcount or 0
@@ -787,30 +795,39 @@ def update_seed(seed_id: str, payload: SeedUpdate) -> dict:
         )
 
         if canonical_seed_id and canonical_seed_id != seed_id:
-            conn.execute(
-                """
-                UPDATE utterance_seeds
-                SET seed_id = :canonical_seed_id
-                WHERE seed_id = :seed_id
-                """,
-                {"seed_id": seed_id, "canonical_seed_id": canonical_seed_id},
-            )
-            conn.execute(
-                """
-                UPDATE edges
-                SET src_id = :canonical_seed_id
-                WHERE src_type = 'seed' AND src_id = :seed_id
-                """,
-                {"seed_id": seed_id, "canonical_seed_id": canonical_seed_id},
-            )
-            conn.execute(
-                """
-                UPDATE edges
-                SET dst_id = :canonical_seed_id
-                WHERE dst_type = 'seed' AND dst_id = :seed_id
-                """,
-                {"seed_id": seed_id, "canonical_seed_id": canonical_seed_id},
-            )
+            try:
+                conn.execute(
+                    """
+                    UPDATE utterance_seeds
+                    SET seed_id = :canonical_seed_id
+                    WHERE seed_id = :seed_id
+                    """,
+                    {"seed_id": seed_id, "canonical_seed_id": canonical_seed_id},
+                )
+            except sqlite3.IntegrityError:
+                pass
+            try:
+                conn.execute(
+                    """
+                    UPDATE edges
+                    SET src_id = :canonical_seed_id
+                    WHERE src_type = 'seed' AND src_id = :seed_id
+                    """,
+                    {"seed_id": seed_id, "canonical_seed_id": canonical_seed_id},
+                )
+            except sqlite3.IntegrityError:
+                pass
+            try:
+                conn.execute(
+                    """
+                    UPDATE edges
+                    SET dst_id = :canonical_seed_id
+                    WHERE dst_type = 'seed' AND dst_id = :seed_id
+                    """,
+                    {"seed_id": seed_id, "canonical_seed_id": canonical_seed_id},
+                )
+            except sqlite3.IntegrityError:
+                pass
 
         row = conn.execute(
             """
@@ -949,7 +966,7 @@ def list_unreviewed_seeds(limit: int = 50, offset: int = 0) -> dict:
             FROM seeds
             WHERE review_status = 'auto'
               AND (canonical_seed_id IS NULL OR canonical_seed_id = '')
-            ORDER BY created_at DESC
+            ORDER BY created_at ASC
             LIMIT :limit OFFSET :offset
             """,
             {"limit": limit, "offset": offset},
