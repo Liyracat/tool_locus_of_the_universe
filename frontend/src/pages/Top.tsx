@@ -490,6 +490,10 @@ export default function TopPage() {
             {selectedNode.node_type === "seed" && (
               <div className="node-editor-body">
                 <div className="field">
+                  <label className="label">seed_id</label>
+                  <div className="readonly">{selectedNode.id}</div>
+                </div>
+                <div className="field">
                   <label className="label">seed_type</label>
                   <input
                     className="input"
