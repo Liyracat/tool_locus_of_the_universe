@@ -880,7 +880,19 @@ def list_seed_merge_candidates_all(limit: int = 50, offset: int = 0) -> dict:
     offset = max(0, offset)
     with get_conn() as conn:
         total_row = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM seed_merge_candidates WHERE status = 'proposed'"
+            """
+            SELECT COUNT(*) AS cnt
+            FROM seed_merge_candidates c
+            LEFT JOIN seeds sa ON sa.seed_id = c.seed_a_id
+            LEFT JOIN seeds sb ON sb.seed_id = c.seed_b_id
+            WHERE c.status = 'proposed'
+              AND sa.seed_id IS NOT NULL
+              AND sb.seed_id IS NOT NULL
+              AND (sa.review_status IS NULL OR sa.review_status != 'rejected')
+              AND (sb.review_status IS NULL OR sb.review_status != 'rejected')
+              AND (sa.canonical_seed_id IS NULL OR sa.canonical_seed_id = '')
+              AND (sb.canonical_seed_id IS NULL OR sb.canonical_seed_id = '')
+            """
         ).fetchone()
         total = total_row["cnt"] if total_row else 0
         rows = conn.execute(
@@ -891,6 +903,12 @@ def list_seed_merge_candidates_all(limit: int = 50, offset: int = 0) -> dict:
             LEFT JOIN seeds sa ON sa.seed_id = c.seed_a_id
             LEFT JOIN seeds sb ON sb.seed_id = c.seed_b_id
             WHERE c.status = 'proposed'
+              AND sa.seed_id IS NOT NULL
+              AND sb.seed_id IS NOT NULL
+              AND (sa.review_status IS NULL OR sa.review_status != 'rejected')
+              AND (sb.review_status IS NULL OR sb.review_status != 'rejected')
+              AND (sa.canonical_seed_id IS NULL OR sa.canonical_seed_id = '')
+              AND (sb.canonical_seed_id IS NULL OR sb.canonical_seed_id = '')
             ORDER BY c.created_at DESC
             LIMIT :limit OFFSET :offset
             """,

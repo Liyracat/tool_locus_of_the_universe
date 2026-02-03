@@ -551,26 +551,26 @@ export default function SettingsPage() {
               </button>
             </div>
             <div className="form-grid full-width split-form-grid">
-            <div className="field">
-              <label className="label">target_type</label>
-              <input className="input" value={splitTargetType} readOnly />
-            </div>
-            <div className="field">
-              <label className="label">上段</label>
-              <input
-                className="input"
-                value={splitUpperText}
-                onChange={(event) => setSplitUpperText(event.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label className="label">下段</label>
-              <input
-                className="input"
-                value={splitLowerText}
-                onChange={(event) => setSplitLowerText(event.target.value)}
-              />
-            </div>
+              <div className="field">
+                <label className="label">target_type</label>
+                <input className="input" value={splitTargetType} readOnly />
+              </div>
+              <div className="field">
+                <label className="label">上段</label>
+                <input
+                  className="input"
+                  value={splitUpperText}
+                  onChange={(event) => setSplitUpperText(event.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label className="label">下段</label>
+                <input
+                  className="input"
+                  value={splitLowerText}
+                  onChange={(event) => setSplitLowerText(event.target.value)}
+                />
+              </div>
             </div>
           </div>
           {splitUpperMeta?.target_table === "seed" && (
@@ -592,7 +592,7 @@ export default function SettingsPage() {
                 <th>status</th>
                 <th>error</th>
                 <th>created_at</th>
-                <th>操作</th>
+                <th className="sticky-col">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -612,7 +612,7 @@ export default function SettingsPage() {
                   <td>{job.status}</td>
                   <td>{job.error ?? ""}</td>
                   <td>{job.created_at}</td>
-                  <td>
+                  <td className="sticky-col">
                     {(job.status === "processing" || job.status === "failed") && (
                       <button type="button" className="button tiny" onClick={() => retryJob(job.job_id)}>
                         再実施
@@ -654,7 +654,9 @@ export default function SettingsPage() {
             </button>
           </div>
         )}
+      </section>
 
+      <section className="panel">
         <div className="panel-row">
           <div className="section-title">seed_merge_candidates 一覧</div>
         </div>
@@ -666,7 +668,7 @@ export default function SettingsPage() {
                 <th>seed_b contents</th>
                 <th>reason</th>
                 <th>similarity</th>
-                <th>操作</th>
+                <th className="sticky-col">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -676,7 +678,7 @@ export default function SettingsPage() {
                   <td className="contents-cell">{item.seed_b_body ?? ""}</td>
                   <td>{item.reason}</td>
                   <td>{typeof item.similarity === "number" ? item.similarity.toFixed(3) : ""}</td>
-                  <td>
+                  <td className="sticky-col">
                     <button type="button" className="button tiny" onClick={() => handleMergeApprove(item)}>
                       統合
                     </button>
@@ -723,7 +725,9 @@ export default function SettingsPage() {
             </button>
           </div>
         )}
+      </section>
 
+      <section className="panel">
         <div className="panel-row">
           <div className="section-title">未レビュー seeds 一覧</div>
         </div>
@@ -733,7 +737,7 @@ export default function SettingsPage() {
               <tr>
                 <th>seed_type</th>
                 <th>body</th>
-                <th>操作</th>
+                <th className="sticky-col">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -741,7 +745,7 @@ export default function SettingsPage() {
                 <tr key={seed.seed_id}>
                   <td>{seed.seed_type}</td>
                   <td className="contents-cell">{seed.body ?? ""}</td>
-                  <td>
+                  <td className="sticky-col">
                     <button
                       type="button"
                       className="button tiny"

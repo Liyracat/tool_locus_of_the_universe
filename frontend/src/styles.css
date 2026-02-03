@@ -416,6 +416,15 @@ select.input {
   text-align: left;
 }
 
+.table th.sticky-col,
+.table td.sticky-col {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: -8px 0 12px rgba(2, 6, 23, 0.35);
+}
+
 .contents-cell {
   white-space: pre-wrap;
 }
