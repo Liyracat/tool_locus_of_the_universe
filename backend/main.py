@@ -166,7 +166,7 @@ def import_commit(payload: ImportCommitRequest) -> dict:
                       status, priority, created_at, updated_at
                     ) VALUES (
                       :job_id, 'embedding', 'utterance_split', :target_id,
-                      'queued', 5, datetime('now'), datetime('now')
+                      'queued', 999, datetime('now'), datetime('now')
                     )
                     """,
                     {
@@ -195,7 +195,7 @@ def import_commit(payload: ImportCommitRequest) -> dict:
                       status, priority, created_at, updated_at
                     ) VALUES (
                       :job_id, :job_type, 'utterance', :target_id,
-                      'queued', 10, datetime('now'), datetime('now')
+                      'queued', 999, datetime('now'), datetime('now')
                     )
                     """,
                     {
@@ -655,19 +655,21 @@ def reprioritize_worker_jobs() -> dict:
                     ordered_jobs.append(job["job_id"])
                     used.add(job["job_id"])
 
-        def add_remaining(job_type: str) -> None:
-            for job in jobs:
+        remaining_jobs = [job for job in jobs if job["job_id"] not in used]
+
+        def append_by_type(job_type: str) -> None:
+            for job in remaining_jobs:
                 if job["job_id"] in used:
                     continue
                 if job["job_type"] == job_type:
                     ordered_jobs.append(job["job_id"])
                     used.add(job["job_id"])
 
-        add_remaining("embedding")
-        add_remaining("embedding_utterance")
-        add_remaining("utterance_role")
+        append_by_type("embedding")
+        append_by_type("embedding_utterance")
+        append_by_type("utterance_role")
 
-        for job in jobs:
+        for job in remaining_jobs:
             if job["job_id"] in used:
                 continue
             ordered_jobs.append(job["job_id"])
@@ -1002,7 +1004,7 @@ def split_editor_utterance_split(payload: SplitEditorUtteranceSplitRequest) -> d
               status, priority, created_at, updated_at, expires_at
             ) VALUES (
               :job_id, 'embedding', 'utterance_split', :target_id,
-              'queued', 10, datetime('now'), datetime('now'), datetime('now')
+              'queued', 999, datetime('now'), datetime('now'), datetime('now')
             )
             """,
             {
@@ -1085,7 +1087,7 @@ def split_editor_seed(payload: SplitEditorSeedRequest) -> dict:
               status, priority, created_at, updated_at, expires_at
             ) VALUES (
               :job_id, 'embedding', 'seed', :target_id,
-              'queued', 10, datetime('now'), datetime('now'), datetime('now')
+              'queued', 999, datetime('now'), datetime('now'), datetime('now')
             )
             """,
             {
