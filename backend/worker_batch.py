@@ -368,7 +368,7 @@ def _insert_seed_results(job: WorkerJob, seeds: list[str], flag_field: str | Non
                   status, priority, created_at, updated_at
                 ) VALUES (
                   :job_id, 'embedding', 'seed', :target_id,
-                  'queued', 10, datetime('now'), datetime('now')
+                  'queued', 999, datetime('now'), datetime('now')
                 )
                 """,
                 {"job_id": str(uuid.uuid4()), "target_id": seed_id},
