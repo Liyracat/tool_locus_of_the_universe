@@ -194,8 +194,12 @@ export const api = {
       method: "DELETE",
     });
   },
-  listWorkerJobs() {
-    return request<WorkerJob[]>("/api/worker-jobs");
+  listWorkerJobs(page: number, limit: number) {
+    const query = new URLSearchParams({
+      limit: String(limit),
+      offset: String((page - 1) * limit),
+    });
+    return request<{ items: WorkerJob[]; total: number }>(`/api/worker-jobs?${query.toString()}`);
   },
   deleteSuccessWorkerJobs() {
     return request<{ deleted: number }>("/api/worker-jobs/success", {

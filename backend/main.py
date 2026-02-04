@@ -323,18 +323,24 @@ def delete_utterance_role(utterance_role_id: int) -> None:
     return None
 
 
-@app.get("/worker-jobs", response_model=List[WorkerJob])
-def list_worker_jobs() -> List[WorkerJob]:
+@app.get("/worker-jobs", response_model=dict)
+def list_worker_jobs(limit: int = 50, offset: int = 0) -> dict:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     with get_conn() as conn:
+        total_row = conn.execute("SELECT COUNT(*) AS cnt FROM worker_jobs").fetchone()
+        total = total_row["cnt"] if total_row else 0
         rows = conn.execute(
             """
             SELECT job_id, job_type, target_table, target_id, status, error,
                    created_at
             FROM worker_jobs
             ORDER BY priority ASC, created_at ASC
-            """
+            LIMIT :limit OFFSET :offset
+            """,
+            {"limit": limit, "offset": offset},
         ).fetchall()
-    return [WorkerJob(**dict(row)) for row in rows]
+    return {"items": [WorkerJob(**dict(row)) for row in rows], "total": total}
 
 
 @app.delete("/worker-jobs/success", status_code=200)
@@ -743,6 +749,11 @@ def update_utterance(utterance_id: str, payload: UtteranceUpdate) -> dict:
 def update_seed(seed_id: str, payload: SeedUpdate) -> dict:
     canonical_seed_id = payload.canonical_seed_id or None
     with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT body FROM seeds WHERE seed_id = :seed_id",
+            {"seed_id": seed_id},
+        ).fetchone()
+        existing_body = existing["body"] if existing else None
         if canonical_seed_id:
             row = conn.execute(
                 "SELECT seed_id FROM seeds WHERE seed_id = :seed_id",
@@ -769,6 +780,20 @@ def update_seed(seed_id: str, payload: SeedUpdate) -> dict:
                 "review_status": payload.review_status,
             },
         )
+
+        if existing_body is not None and existing_body != payload.body:
+            conn.execute(
+                """
+                INSERT INTO worker_jobs (
+                  job_id, job_type, target_table, target_id,
+                  status, priority, created_at, updated_at, expires_at
+                ) VALUES (
+                  :job_id, 'embedding', 'seed', :target_id,
+                  'queued', 999, datetime('now'), datetime('now'), datetime('now')
+                )
+                """,
+                {"job_id": str(uuid.uuid4()), "target_id": seed_id},
+            )
 
         if canonical_seed_id and canonical_seed_id != seed_id:
             try:

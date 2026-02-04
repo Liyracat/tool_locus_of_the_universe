@@ -23,6 +23,7 @@ export default function SettingsPage() {
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
   const [utteranceRoles, setUtteranceRoles] = useState<UtteranceRole[]>([]);
   const [workerJobs, setWorkerJobs] = useState<WorkerJob[]>([]);
+  const [workerJobsTotal, setWorkerJobsTotal] = useState(0);
   const [showSpeakers, setShowSpeakers] = useState(false);
   const [showRoles, setShowRoles] = useState(false);
   const [jobPage, setJobPage] = useState(1);
@@ -45,14 +46,12 @@ export default function SettingsPage() {
 
   const loadAll = async () => {
     try {
-      const [speakerList, roleList, jobList] = await Promise.all([
+      const [speakerList, roleList] = await Promise.all([
         api.listSpeakers(),
         api.listUtteranceRoles(),
-        api.listWorkerJobs(),
       ]);
       setSpeakers(speakerList);
       setUtteranceRoles(roleList);
-      setWorkerJobs(jobList);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "データ取得に失敗しました");
     }
@@ -63,9 +62,8 @@ export default function SettingsPage() {
   }, []);
 
   const jobsPerPage = 50;
-  const totalJobPages = Math.max(1, Math.ceil(workerJobs.length / jobsPerPage));
-  const jobStart = (jobPage - 1) * jobsPerPage;
-  const pagedJobs = workerJobs.slice(jobStart, jobStart + jobsPerPage);
+  const totalJobPages = Math.max(1, Math.ceil(workerJobsTotal / jobsPerPage));
+  const pagedJobs = workerJobs;
   const mergePerPage = 50;
   const seedPerPage = 50;
   const totalMergePages = Math.max(1, Math.ceil(mergeTotal / mergePerPage));
@@ -74,6 +72,19 @@ export default function SettingsPage() {
   useEffect(() => {
     setJobPage((prev) => Math.min(prev, totalJobPages));
   }, [totalJobPages]);
+
+  useEffect(() => {
+    const loadJobs = async () => {
+      try {
+        const result = await api.listWorkerJobs(jobPage, jobsPerPage);
+        setWorkerJobs(result.items);
+        setWorkerJobsTotal(result.total);
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : "worker_jobsの取得に失敗しました");
+      }
+    };
+    void loadJobs();
+  }, [jobPage]);
 
   useEffect(() => {
     const loadMergeCandidates = async () => {
@@ -130,6 +141,9 @@ export default function SettingsPage() {
       setSpeakerForm({ ...emptySpeaker });
       setEditingSpeakerId(null);
       await loadAll();
+      const jobs = await api.listWorkerJobs(jobPage, jobsPerPage);
+      setWorkerJobs(jobs.items);
+      setWorkerJobsTotal(jobs.total);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "スピーカー保存に失敗しました");
     }
@@ -146,6 +160,9 @@ export default function SettingsPage() {
       setRoleForm({ ...emptyRole });
       setEditingRoleId(null);
       await loadAll();
+      const jobs = await api.listWorkerJobs(jobPage, jobsPerPage);
+      setWorkerJobs(jobs.items);
+      setWorkerJobsTotal(jobs.total);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "ロール保存に失敗しました");
     }
@@ -161,6 +178,9 @@ export default function SettingsPage() {
       );
       setStatus(`不要データを削除しました（${totalDeleted}件）`);
       await loadAll();
+      const jobs = await api.listWorkerJobs(jobPage, jobsPerPage);
+      setWorkerJobs(jobs.items);
+      setWorkerJobsTotal(jobs.total);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "不要データ削除に失敗しました");
     }
@@ -172,6 +192,9 @@ export default function SettingsPage() {
       const result = await api.reprioritizeWorkerJobs();
       setStatus(`優先順位を更新しました（${result.updated}件）`);
       await loadAll();
+      const jobs = await api.listWorkerJobs(jobPage, jobsPerPage);
+      setWorkerJobs(jobs.items);
+      setWorkerJobsTotal(jobs.total);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "優先順位更新に失敗しました");
     }
@@ -182,6 +205,9 @@ export default function SettingsPage() {
     try {
       await api.retryWorkerJob(job_id);
       await loadAll();
+      const jobs = await api.listWorkerJobs(jobPage, jobsPerPage);
+      setWorkerJobs(jobs.items);
+      setWorkerJobsTotal(jobs.total);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "再実施に失敗しました");
     }
