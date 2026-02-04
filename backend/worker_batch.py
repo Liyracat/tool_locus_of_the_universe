@@ -257,14 +257,50 @@ def run_worker_batch(limit: int = 1000000) -> None:
     for job in jobs:
         try:
             _update_job_status(job.job_id, "processing", None)
-            _process_job(job)
-            _update_job_status(job.job_id, "success", None)
+            processed = _process_job(job)
+            if processed:
+                _update_job_status(job.job_id, "success", None)
         except Exception as exc:  # noqa: BLE001
             logger.exception("job failed: %s", job.job_id)
             _update_job_status(job.job_id, "failed", str(exc))
 
+def _mark_no_data(job: WorkerJob, reason: str) -> None:
+    _update_job_status(job.job_id, "no_data", reason)
 
-def _process_job(job: WorkerJob) -> None:
+
+def _target_exists(job: WorkerJob) -> bool:
+    with get_conn() as conn:
+        if job.target_table == "utterance":
+            row = conn.execute(
+                "SELECT 1 FROM utterance WHERE utterance_id = :utterance_id",
+                {"utterance_id": job.target_id},
+            ).fetchone()
+            return row is not None
+        if job.target_table == "utterance_split":
+            row = conn.execute(
+                "SELECT 1 FROM utterance_splits WHERE utterance_split_id = :utterance_split_id",
+                {"utterance_split_id": job.target_id},
+            ).fetchone()
+            return row is not None
+        if job.target_table == "seed":
+            row = conn.execute(
+                "SELECT 1 FROM seeds WHERE seed_id = :seed_id",
+                {"seed_id": job.target_id},
+            ).fetchone()
+            return row is not None
+        if job.target_table in ("cluster", "clusters"):
+            row = conn.execute(
+                "SELECT 1 FROM clusters WHERE cluster_id = :cluster_id",
+                {"cluster_id": job.target_id},
+            ).fetchone()
+            return row is not None
+    return False
+
+
+def _process_job(job: WorkerJob) -> bool:
+    if not _target_exists(job):
+        _mark_no_data(job, "target not found")
+        return False
     utterance_dict: dict | None = None
     if job.target_table == "utterance":
         with get_conn() as conn:
@@ -273,7 +309,8 @@ def _process_job(job: WorkerJob) -> None:
                 {"utterance_id": job.target_id},
             ).fetchone()
             if not utterance:
-                raise RuntimeError("utterance not found")
+                _mark_no_data(job, "utterance not found")
+                return False
             utterance_dict = dict(utterance)
 
     if job.job_type == "utterance_role":
@@ -295,6 +332,7 @@ def _process_job(job: WorkerJob) -> None:
         _handle_cluster_body(job)
     else:
         raise RuntimeError(f"Unsupported job_type: {job.job_type}")
+    return True
 
 
 def _handle_utterance_role(job: WorkerJob, utterance: dict) -> None:

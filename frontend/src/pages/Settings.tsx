@@ -539,7 +539,7 @@ export default function SettingsPage() {
         <div className="panel-row">
           <div className="section-title">worker_jobs 一覧</div>
           <button type="button" className="button tiny ghost" onClick={deleteSuccessJobs}>
-            successを削除
+            success/no_dataを削除
           </button>
         </div>
         <div className="panel-row column">

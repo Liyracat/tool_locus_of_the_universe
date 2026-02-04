@@ -333,7 +333,6 @@ def _cluster_create() -> None:
         seed_neighbors = [nid for nid in neighbors_ids if nid[0] == "seed"]
         cluster_neighbors = [nid for nid in neighbors_ids if nid[0] == "cluster"]
         cluster_neighbors_top5 = [nid for nid in neighbors_ids[:5] if nid[0] == "cluster"]
-        _deactivate_layout_points_for_neighbors(neighbors_ids)
 
         if len(seed_neighbors) >= 20 and not cluster_neighbors_top5:
             group_seed_ids = [sid for _, sid in seed_neighbors]
@@ -343,6 +342,7 @@ def _cluster_create() -> None:
             _insert_cluster_into_neighbor_layout_runs(neighbors_ids, new_cluster_id)
             _enqueue_cluster_body(new_cluster_id)
             used_seed_ids.update(group_seed_ids)
+            _deactivate_layout_points_for_neighbors(neighbors_ids)
             continue
 
         if len(cluster_neighbors) >= 10:
@@ -356,6 +356,7 @@ def _cluster_create() -> None:
             _insert_cluster_into_neighbor_layout_runs(neighbors_ids, new_cluster_id)
             _enqueue_cluster_body(new_cluster_id)
             used_cluster_ids.update(cluster_ids)
+            _deactivate_layout_points_for_neighbors(neighbors_ids)
 
 
 def _regenerate_edges() -> None:

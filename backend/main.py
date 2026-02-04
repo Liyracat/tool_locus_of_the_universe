@@ -340,7 +340,7 @@ def list_worker_jobs() -> List[WorkerJob]:
 @app.delete("/worker-jobs/success", status_code=200)
 def delete_success_jobs() -> dict:
     with get_conn() as conn:
-        cur = conn.execute("DELETE FROM worker_jobs WHERE status = 'success'")
+        cur = conn.execute("DELETE FROM worker_jobs WHERE status IN ('success','no_data')")
         deleted = cur.rowcount or 0
     return {"deleted": deleted}
 
@@ -362,24 +362,8 @@ def purge_unused_data() -> dict:
         )
         counts["utterance_orphans"] = cur.rowcount or 0
 
-        cur = conn.execute("DELETE FROM worker_jobs WHERE status = 'success'")
+        cur = conn.execute("DELETE FROM worker_jobs WHERE status IN ('success','no_data')")
         counts["worker_jobs"] = cur.rowcount or 0
-        cur = conn.execute(
-            """
-            DELETE FROM worker_jobs
-            WHERE target_table = 'utterance'
-              AND target_id NOT IN (SELECT utterance_id FROM utterance)
-            """
-        )
-        counts["worker_jobs_utterance_orphan"] = cur.rowcount or 0
-        cur = conn.execute(
-            """
-            DELETE FROM worker_jobs
-            WHERE target_table = 'utterance_split'
-              AND target_id NOT IN (SELECT utterance_split_id FROM utterance_splits)
-            """
-        )
-        counts["worker_jobs_utterance_split_orphan"] = cur.rowcount or 0
 
         cur = conn.execute(
             """
@@ -389,23 +373,6 @@ def purge_unused_data() -> dict:
             """
         )
         counts["seeds"] = cur.rowcount or 0
-        cur = conn.execute(
-            """
-            DELETE FROM worker_jobs
-            WHERE target_table = 'seed'
-              AND target_id NOT IN (SELECT seed_id FROM seeds)
-            """
-        )
-        counts["worker_jobs_seed_orphan"] = cur.rowcount or 0
-        cur = conn.execute(
-            """
-            DELETE FROM worker_jobs
-            WHERE job_type = 'cluster_body'
-              AND target_table IN ('cluster', 'clusters')
-              AND target_id NOT IN (SELECT cluster_id FROM clusters)
-            """
-        )
-        counts["worker_jobs_cluster_body_orphan"] = cur.rowcount or 0
 
         cur = conn.execute("DELETE FROM clusters WHERE is_archived = 1")
         counts["clusters"] = cur.rowcount or 0

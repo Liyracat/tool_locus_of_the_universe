@@ -77,8 +77,8 @@ CREATE TABLE IF NOT EXISTS worker_jobs (
   job_type      TEXT NOT NULL,                          -- 例: llm_classify / seed_extract / embed / umap / edge_assign ...
   target_table  TEXT NOT NULL,                          -- 例: utterance, seeds, clusters ...
   target_id     TEXT NOT NULL,                          -- 対象PK
-  status        TEXT NOT NULL                            -- queued / processing / success / failed
-    CHECK (status IN ('queued','processing','success','failed')),
+  status        TEXT NOT NULL                            -- queued / processing / success / failed / no_data
+    CHECK (status IN ('queued','processing','success','failed','no_data')),
   priority      INTEGER NOT NULL DEFAULT 100,           -- 小さいほど優先
   payload_json  TEXT,                                   -- 任意パラメータ
   locked_at     TEXT,
