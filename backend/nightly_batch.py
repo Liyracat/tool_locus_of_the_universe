@@ -100,11 +100,13 @@ def _build_faiss_index(matrix: "np.ndarray") -> "faiss.IndexFlatIP":
 
 def run_nightly_batch() -> None:
     logger.info("Nightly batch start")
-    _refresh_seed_distance_stats()
-    _cluster_split()
-    _cluster_merge()
-    _cluster_create()
-    _regenerate_edges()
+    for i in range(5):
+        logger.info("Nightly batch iteration %d", i)
+        _refresh_seed_distance_stats()
+        _cluster_split()
+        _cluster_merge()
+        _cluster_create()
+        _regenerate_edges()
     _recalculate_layouts()
     _seed_merge_candidates()
     logger.info("Nightly batch end")
@@ -331,6 +333,7 @@ def _cluster_create() -> None:
         seed_neighbors = [nid for nid in neighbors_ids if nid[0] == "seed"]
         cluster_neighbors = [nid for nid in neighbors_ids if nid[0] == "cluster"]
         cluster_neighbors_top5 = [nid for nid in neighbors_ids[:5] if nid[0] == "cluster"]
+        _deactivate_layout_points_for_neighbors(neighbors_ids)
 
         if len(seed_neighbors) >= 20 and not cluster_neighbors_top5:
             group_seed_ids = [sid for _, sid in seed_neighbors]
@@ -342,7 +345,7 @@ def _cluster_create() -> None:
             used_seed_ids.update(group_seed_ids)
             continue
 
-        if len(cluster_neighbors) >= 20:
+        if len(cluster_neighbors) >= 10:
             cluster_ids = [cid for _, cid in cluster_neighbors]
             seed_ids = _seed_ids_from_clusters(cluster_ids)
             if not seed_ids or any(seed_id not in embed_map for seed_id in seed_ids):
@@ -575,7 +578,7 @@ def _seed_merge_candidates() -> None:
                 candidates[(a_id, b_id)] = {"reason": "exact_text", "similarity": None}
                 continue
 
-            if score >= 0.85:
+            if score >= 0.80:
                 entry = candidates.get((a_id, b_id))
                 if entry and entry.get("reason") == "exact_text":
                     continue
@@ -866,6 +869,25 @@ def _insert_cluster_into_neighbor_layout_runs(
                 """,
                 {"layout_id": run["layout_id"], "cluster_id": new_cluster_id},
             )
+
+
+def _deactivate_layout_points_for_neighbors(neighbor_ids: list[tuple[str, str]]) -> None:
+    targets = [(t_type, t_id) for t_type, t_id in neighbor_ids if t_type in ("seed", "cluster")]
+    if not targets:
+        return
+    placeholders = " OR ".join(["(target_type = ? AND target_id = ?)"] * len(targets))
+    params: list[str] = []
+    for t_type, t_id in targets:
+        params.extend([t_type, t_id])
+    with get_conn() as conn:
+        conn.execute(
+            f"""
+            UPDATE layout_points
+            SET is_active = 0
+            WHERE {placeholders}
+            """,
+            params,
+        )
 
 
 def _enqueue_cluster_body(cluster_id: str) -> None:

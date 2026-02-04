@@ -397,6 +397,15 @@ def purge_unused_data() -> dict:
             """
         )
         counts["worker_jobs_seed_orphan"] = cur.rowcount or 0
+        cur = conn.execute(
+            """
+            DELETE FROM worker_jobs
+            WHERE job_type = 'cluster_body'
+              AND target_table IN ('cluster', 'clusters')
+              AND target_id NOT IN (SELECT cluster_id FROM clusters)
+            """
+        )
+        counts["worker_jobs_cluster_body_orphan"] = cur.rowcount or 0
 
         cur = conn.execute("DELETE FROM clusters WHERE is_archived = 1")
         counts["clusters"] = cur.rowcount or 0
@@ -508,7 +517,7 @@ def purge_unused_data() -> dict:
         counts["edges_dst_cluster"] = cur.rowcount or 0
 
         cur = conn.execute(
-            "DELETE FROM seed_merge_candidates WHERE status IN ('merged','rejected')"
+            "DELETE FROM seed_merge_candidates WHERE status IN ('merged')"
         )
         counts["seed_merge_candidates_status"] = cur.rowcount or 0
         cur = conn.execute(
