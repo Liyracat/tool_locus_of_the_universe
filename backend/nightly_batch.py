@@ -7,6 +7,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Iterable
+from dataclasses import dataclass
 
 from .db import get_conn
 
@@ -28,6 +29,14 @@ except ImportError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "paraphrase-multilingual:latest"
+
+@dataclass
+class ClusterNode:
+    cluster_id: str
+    seed_ids: list[str]
+    direct_seed_ids: list[str]
+    child_cluster_ids: list[str]
+    depth: int
 
 
 def _ensure_numpy() -> None:
@@ -98,15 +107,18 @@ def _build_faiss_index(matrix: "np.ndarray") -> "faiss.IndexFlatIP":
     return index
 
 
+def _normalize_matrix(matrix: "np.ndarray") -> "np.ndarray":
+    _ensure_numpy()
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    return matrix / norms
+
+
 def run_nightly_batch() -> None:
     logger.info("Nightly batch start")
-    for i in range(5):
-        logger.info("Nightly batch iteration %d", i)
-        _refresh_seed_distance_stats()
-        _cluster_split()
-        _cluster_merge()
-        _cluster_create()
-        _regenerate_edges()
+    _refresh_seed_distance_stats()
+    _rebuild_clusters_density()
+    _regenerate_edges()
     _recalculate_layouts()
     _seed_merge_candidates()
     logger.info("Nightly batch end")
@@ -356,6 +368,451 @@ def _cluster_create() -> None:
             _insert_cluster_into_neighbor_layout_runs(neighbors_ids, new_cluster_id)
             _enqueue_cluster_body(new_cluster_id)
             used_cluster_ids.update(cluster_ids)
+
+
+def _rebuild_clusters_density() -> None:
+    _ensure_numpy()
+    _ensure_faiss()
+
+    params = {
+        "k_min": 5,
+        "k_max": 30,
+        "k_scale": 3.0,
+        "percentile": 1.0,
+        "min_cluster_size": 8,
+        "max_depth": 8,
+        "improvement_alpha": 0.75,
+        "max_clusters_total": 5000,
+    }
+
+    with get_conn() as conn:
+        conn.execute("DELETE FROM layout_points")
+        conn.execute("DELETE FROM layout_runs")
+        conn.execute("DELETE FROM clusters")
+        conn.execute("DELETE FROM embeddings WHERE target_type = 'cluster'")
+
+        rows = conn.execute(
+            """
+            SELECT e.target_id, e.dims, e.vector, s.body
+            FROM embeddings e
+            JOIN seeds s ON s.seed_id = e.target_id
+            WHERE e.target_type = 'seed'
+              AND e.model_name = :model_name
+              AND e.is_l2_normalized = 1
+              AND (s.review_status IS NULL OR s.review_status != 'rejected')
+              AND (s.canonical_seed_id IS NULL OR s.canonical_seed_id = '')
+            """,
+            {"model_name": MODEL_NAME},
+        ).fetchall()
+
+    if not rows:
+        logger.info("rebuild_clusters_density: no seed embeddings")
+        _insert_global_layout([], {}, {})
+        return
+
+    seed_ids = [row["target_id"] for row in rows]
+    seed_bodies = {row["target_id"]: (row["body"] or "") for row in rows}
+    vectors = np.vstack([_decode_vector(row["vector"], row["dims"]) for row in rows]).astype(np.float32)
+    vectors = _normalize_matrix(vectors)
+    id_to_index = {seed_id: idx for idx, seed_id in enumerate(seed_ids)}
+
+    seed_to_utterance = _load_seed_utterances(seed_ids)
+
+    cluster_nodes: list[ClusterNode] = []
+    cluster_count = 0
+    stop_generation = False
+
+    def calc_k(n: int) -> int:
+        if n <= 1:
+            return 0
+        k_val = int(round(np.log(n) * params["k_scale"]))
+        k_val = max(params["k_min"], k_val)
+        k_val = min(k_val, params["k_max"], n - 1)
+        return k_val
+
+    def compute_dk(indices: list[int]) -> tuple["np.ndarray", int]:
+        n = len(indices)
+        if n <= params["min_cluster_size"]:
+            return np.array([]), 0
+        k = calc_k(n)
+        if k <= 0:
+            return np.array([]), 0
+        subset = vectors[indices]
+        index = _build_faiss_index(subset)
+        scores, neighbors = index.search(subset, k + 1)
+        dk_values = np.zeros(n, dtype=np.float32)
+        for i in range(n):
+            sims = []
+            for score, n_idx in zip(scores[i], neighbors[i]):
+                if n_idx < 0:
+                    continue
+                if n_idx == i:
+                    continue
+                sims.append(score)
+                if len(sims) >= k:
+                    break
+            if not sims:
+                dk_values[i] = 1.0
+            else:
+                dk_values[i] = 1.0 - float(sims[-1])
+        return dk_values, k
+
+    def candidate_components(indices: list[int], k: int, dk_values: "np.ndarray") -> list[list[int]]:
+        if len(indices) < params["min_cluster_size"]:
+            return []
+        perc = max(0.0, min(100.0, params["percentile"]))
+        threshold = float(np.percentile(dk_values, perc))
+        candidate_mask = dk_values <= threshold
+        candidate_indices = [indices[i] for i, flag in enumerate(candidate_mask) if flag]
+        if len(candidate_indices) < params["min_cluster_size"]:
+            return []
+        k2 = min(k, len(candidate_indices) - 1)
+        if k2 <= 0:
+            return []
+        cand_vectors = vectors[candidate_indices]
+        cand_index = _build_faiss_index(cand_vectors)
+        scores, neighbors = cand_index.search(cand_vectors, k2 + 1)
+        adjacency: list[set[int]] = [set() for _ in range(len(candidate_indices))]
+        for i in range(len(candidate_indices)):
+            for n_idx in neighbors[i]:
+                if n_idx < 0 or n_idx == i:
+                    continue
+                adjacency[i].add(int(n_idx))
+                adjacency[int(n_idx)].add(i)
+        visited = [False] * len(candidate_indices)
+        components: list[list[int]] = []
+        for i in range(len(candidate_indices)):
+            if visited[i]:
+                continue
+            stack = [i]
+            visited[i] = True
+            comp_local: list[int] = []
+            while stack:
+                cur = stack.pop()
+                comp_local.append(cur)
+                for nxt in adjacency[cur]:
+                    if not visited[nxt]:
+                        visited[nxt] = True
+                        stack.append(nxt)
+            if len(comp_local) >= params["min_cluster_size"]:
+                components.append([candidate_indices[idx] for idx in comp_local])
+        return components
+
+    def median_dk(indices: list[int]) -> float:
+        dk_values, _ = compute_dk(indices)
+        if dk_values.size == 0:
+            return float("inf")
+        return float(np.median(dk_values))
+
+    def build_overview(seed_subset: list[str]) -> str:
+        if not seed_subset:
+            return ""
+        idxs = [id_to_index[sid] for sid in seed_subset if sid in id_to_index]
+        if not idxs:
+            return ""
+        subset_vecs = vectors[idxs]
+        centroid = subset_vecs.mean(axis=0, keepdims=True)
+        centroid = _normalize_matrix(centroid)
+        sims = (subset_vecs @ centroid.T).reshape(-1)
+        top_indices = np.argsort(-sims)[:5].tolist()
+        bodies = [seed_bodies.get(seed_subset[i], "") for i in top_indices]
+        return "\n".join([body for body in bodies if body])
+
+    def recurse(indices: list[int], depth: int, parent_median: float) -> tuple[list[ClusterNode], set[int]]:
+        nonlocal cluster_count, stop_generation
+        if stop_generation:
+            return [], set()
+        if len(indices) <= params["min_cluster_size"]:
+            return [], set()
+        dk_values, k = compute_dk(indices)
+        if dk_values.size == 0:
+            return [], set()
+        components = candidate_components(indices, k, dk_values)
+        if not components:
+            return [], set()
+        created: list[ClusterNode] = []
+        used: set[int] = set()
+        for comp in components:
+            if stop_generation:
+                break
+            if cluster_count >= params["max_clusters_total"]:
+                logger.warning("cluster generation reached max_clusters_total, stop further generation")
+                stop_generation = True
+                break
+            comp_median = median_dk(comp)
+            child_nodes: list[ClusterNode] = []
+            child_used: set[int] = set()
+            if depth < params["max_depth"] and comp_median <= params["improvement_alpha"] * parent_median:
+                child_nodes, child_used = recurse(comp, depth + 1, comp_median)
+            comp_seed_ids = [seed_ids[i] for i in comp]
+            child_seed_ids = {seed_ids[i] for i in child_used}
+            direct_seed_ids = [sid for sid in comp_seed_ids if sid not in child_seed_ids]
+            cluster_id = str(uuid.uuid4())
+            node = ClusterNode(
+                cluster_id=cluster_id,
+                seed_ids=comp_seed_ids,
+                direct_seed_ids=direct_seed_ids,
+                child_cluster_ids=[child.cluster_id for child in child_nodes],
+                depth=depth,
+            )
+            created.extend(child_nodes)
+            created.append(node)
+            used.update(comp)
+            cluster_count += 1
+        return created, used
+
+    root_indices = list(range(len(seed_ids)))
+    root_median = median_dk(root_indices)
+    clusters, assigned_indices = recurse(root_indices, 0, root_median)
+
+    cluster_seed_sets = {node.cluster_id: set(node.seed_ids) for node in clusters}
+    child_cluster_ids = {child_id for node in clusters for child_id in node.child_cluster_ids}
+    top_level_clusters = [node for node in clusters if node.cluster_id not in child_cluster_ids]
+    assigned_seed_ids = {seed_ids[i] for i in assigned_indices}
+
+    _insert_clusters_and_layouts(
+        clusters,
+        seed_to_utterance,
+        seed_bodies,
+        vectors,
+        id_to_index,
+    )
+    _insert_global_layout(
+        top_level_clusters,
+        seed_to_utterance,
+        assigned_seed_ids,
+    )
+
+
+def _load_seed_utterances(seed_ids: list[str]) -> dict[str, list[str]]:
+    if not seed_ids:
+        return {}
+    placeholders = ",".join("?" for _ in seed_ids)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT seed_id, utterance_id
+            FROM utterance_seeds
+            WHERE seed_id IN ({placeholders})
+            """,
+            seed_ids,
+        ).fetchall()
+    mapping: dict[str, list[str]] = {}
+    for row in rows:
+        mapping.setdefault(row["seed_id"], []).append(row["utterance_id"])
+    return mapping
+
+
+def _insert_clusters_and_layouts(
+    clusters: list[ClusterNode],
+    seed_to_utterance: dict[str, list[str]],
+    seed_bodies: dict[str, str],
+    vectors: "np.ndarray",
+    id_to_index: dict[str, int],
+) -> None:
+    if not clusters:
+        return
+    for node in clusters:
+        overview = ""
+        if node.seed_ids:
+            idxs = [id_to_index[sid] for sid in node.seed_ids if sid in id_to_index]
+            if idxs:
+                subset_vecs = vectors[idxs]
+                centroid = subset_vecs.mean(axis=0, keepdims=True)
+                centroid = _normalize_matrix(centroid)
+                sims = (subset_vecs @ centroid.T).reshape(-1)
+                top_indices = np.argsort(-sims)[:5].tolist()
+                bodies = [seed_bodies.get(node.seed_ids[i], "") for i in top_indices]
+                overview = "\n".join([body for body in bodies if body])
+
+        with get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO clusters (
+                  cluster_id, cluster_name, cluster_overview, cluster_level, is_archived,
+                  created_at, updated_at
+                ) VALUES (
+                  :cluster_id, NULL, :overview, 'cluster', 0,
+                  datetime('now'), datetime('now')
+                )
+                """,
+                {"cluster_id": node.cluster_id, "overview": overview},
+            )
+            if node.seed_ids:
+                idxs = [id_to_index[sid] for sid in node.seed_ids if sid in id_to_index]
+                if idxs:
+                    subset_vecs = vectors[idxs]
+                    mean_vec = subset_vecs.mean(axis=0)
+                    mean_vec = _normalize_matrix(mean_vec.reshape(1, -1)).reshape(-1)
+                    conn.execute(
+                        """
+                        INSERT INTO embeddings (
+                          embedding_id, target_type, target_id, model_name, dims, vector, is_l2_normalized, created_at
+                        ) VALUES (
+                          :embedding_id, 'cluster', :target_id, :model_name, :dims, :vector, 1, datetime('now')
+                        )
+                        """,
+                        {
+                            "embedding_id": str(uuid.uuid4()),
+                            "target_id": node.cluster_id,
+                            "model_name": MODEL_NAME,
+                            "dims": mean_vec.size,
+                            "vector": mean_vec.astype(np.float32).tobytes(),
+                        },
+                    )
+
+            layout_id = str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT INTO layout_runs (
+                  layout_id, algorithm, dims, scope_type, scope_cluster_id,
+                  params_json, is_active, created_at
+                ) VALUES (
+                  :layout_id, 'umap', 2, 'cluster', :cluster_id,
+                  :params_json, 1, datetime('now')
+                )
+                """,
+                {
+                    "layout_id": layout_id,
+                    "cluster_id": node.cluster_id,
+                    "params_json": json.dumps(
+                        {"n_components": 2, "n_neighbors": 15, "min_dist": 0.1, "random_state": 42}
+                    ),
+                },
+            )
+
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO layout_points (
+                  layout_id, target_type, target_id, x, y, is_active, created_at
+                ) VALUES (
+                  :layout_id, 'cluster', :target_id, 0, 0, 1, datetime('now')
+                )
+                """,
+                {"layout_id": layout_id, "target_id": node.cluster_id},
+            )
+
+            for seed_id in node.direct_seed_ids:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO layout_points (
+                      layout_id, target_type, target_id, x, y, is_active, created_at
+                    ) VALUES (
+                      :layout_id, 'seed', :target_id, 0, 0, 1, datetime('now')
+                    )
+                    """,
+                    {"layout_id": layout_id, "target_id": seed_id},
+                )
+                for utterance_id in seed_to_utterance.get(seed_id, []):
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO layout_points (
+                          layout_id, target_type, target_id, x, y, is_active, created_at
+                        ) VALUES (
+                          :layout_id, 'utterance', :target_id, 0, 0, 1, datetime('now')
+                        )
+                        """,
+                        {"layout_id": layout_id, "target_id": utterance_id},
+                    )
+
+            for child_id in node.child_cluster_ids:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO layout_points (
+                      layout_id, target_type, target_id, x, y, is_active, created_at
+                    ) VALUES (
+                      :layout_id, 'cluster', :target_id, 0, 0, 1, datetime('now')
+                    )
+                    """,
+                    {"layout_id": layout_id, "target_id": child_id},
+                )
+
+
+def _insert_global_layout(
+    top_level_clusters: list[ClusterNode] | list[str],
+    seed_to_utterance: dict[str, list[str]],
+    assigned_seed_ids: set[str],
+) -> None:
+    with get_conn() as conn:
+        layout_id = str(uuid.uuid4())
+        conn.execute(
+            """
+            INSERT INTO layout_runs (
+              layout_id, algorithm, dims, scope_type, scope_cluster_id,
+              params_json, is_active, created_at
+            ) VALUES (
+              :layout_id, 'umap', 2, 'global', NULL,
+              :params_json, 1, datetime('now')
+            )
+            """,
+            {
+                "layout_id": layout_id,
+                "params_json": json.dumps(
+                    {"n_components": 2, "n_neighbors": 15, "min_dist": 0.1, "random_state": 42}
+                ),
+            },
+        )
+        cluster_ids = [
+            c.cluster_id if isinstance(c, ClusterNode) else c for c in top_level_clusters
+        ]
+        for cluster_id in cluster_ids:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO layout_points (
+                  layout_id, target_type, target_id, x, y, is_active, created_at
+                ) VALUES (
+                  :layout_id, 'cluster', :target_id, 0, 0, 1, datetime('now')
+                )
+                """,
+                {"layout_id": layout_id, "target_id": cluster_id},
+            )
+
+        if assigned_seed_ids:
+            placeholders = ",".join("?" for _ in assigned_seed_ids)
+            rows = conn.execute(
+                f"""
+                SELECT seed_id
+                FROM seeds
+                WHERE seed_id NOT IN ({placeholders})
+                  AND (review_status IS NULL OR review_status != 'rejected')
+                  AND (canonical_seed_id IS NULL OR canonical_seed_id = '')
+                """,
+                list(assigned_seed_ids),
+            ).fetchall()
+            unassigned_seed_ids = [row["seed_id"] for row in rows]
+        else:
+            rows = conn.execute(
+                """
+                SELECT seed_id
+                FROM seeds
+                WHERE (review_status IS NULL OR review_status != 'rejected')
+                  AND (canonical_seed_id IS NULL OR canonical_seed_id = '')
+                """
+            ).fetchall()
+            unassigned_seed_ids = [row["seed_id"] for row in rows]
+
+        for seed_id in unassigned_seed_ids:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO layout_points (
+                  layout_id, target_type, target_id, x, y, is_active, created_at
+                ) VALUES (
+                  :layout_id, 'seed', :target_id, 0, 0, 1, datetime('now')
+                )
+                """,
+                {"layout_id": layout_id, "target_id": seed_id},
+            )
+            for utterance_id in seed_to_utterance.get(seed_id, []):
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO layout_points (
+                      layout_id, target_type, target_id, x, y, is_active, created_at
+                    ) VALUES (
+                      :layout_id, 'utterance', :target_id, 0, 0, 1, datetime('now')
+                    )
+                    """,
+                    {"layout_id": layout_id, "target_id": utterance_id},
+                )
 
 
 def _regenerate_edges() -> None:
