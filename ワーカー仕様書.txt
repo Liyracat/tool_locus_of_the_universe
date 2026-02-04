@@ -192,210 +192,120 @@ f"{連結したテキスト}"
 夜間などに行う重たいバッチ処理
 ・全seedの近傍距離の平均をall_seed_info.avg_seed_distanceとして、近傍距離の中央値をall_seed_info.median_seed_distanceとしてINSERTorUPDATEする。
 
-・clusterの分割
-　　・edges.dst_type = cluster、edges.edge_type = part_ofで検索したとき100件以上存在するedges.dst_idを探す。
-　　　　・存在しない場合：スキップ
-　　　　・存在する場合：全てのseedに紐づいているembeddings.is_l2_normalized = 1ならば、以下の処理を行う。それ以外の場合はスキップ。
-　　　　　　・該当するseedに対して、密度関数(FAISSでkNNをとり(k=30)、その中央値を見る)を調整し2つ以上にグループを分裂させる（分裂後は1グループあたり20seed以上）
-　　　　　　・対象のclusterはclusters.is_archived = 1、updated_at = 現在時刻にUPDATEする。
-　　　　　　・対象のclusterに紐づくedgesについて(srcとdstのどちらも確認)、is_active = 0、updated_at = 現在時刻にUPDATEする。
-　　　　　　・対象のclusterに紐づくlayout_runsについて、is_active = 0にUPDATEする。
-　　　　　　・対象のclusterに紐づくlayout_ruinsに属していたすべてのlayout_pointsについて、is_active = 0にUPDATEする。
-　　　　　　・対象のclusterが紐づいていたlayout_pointsについて、is_active = 0にUPDATEする。
-　　　　　　・各グループに対して以下の処理を行う。
-　　　　　　　　・clustersをINSERTする
-　　　　　　　　　　・cluster_id = 生成UUID
-　　　　　　　　　　・cluster_level = cluster
-　　　　　　　　　　・is_archived = 0
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　　　・updated_at = 現在時刻
-　　　　　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにINSERTする
-　　　　　　　　　　・embedding_id = 生成UUID
-　　　　　　　　　　・target_type = cluster
-　　　　　　　　　　・target_id = 生成したcluster_id
-　　　　　　　　　　・model_name = 大元のclusterに紐づいていたembeddings.model_name
-　　　　　　　　　　・dims = 大元のclusterに紐づいていたembeddings.dims
-　　　　　　　　　　・vector = 所属するseedのembeddings.vectorの平均＆L2正規化
-　　　　　　　　　　・is_l2_normalized = 1
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　・layout_runsにINSERTする
-　　　　　　　　　　・layout_id = 生成UUID
-　　　　　　　　　　・algorithm = umap
-　　　　　　　　　　・dims = 2
-　　　　　　　　　　・scope_type = cluster
-　　　　　　　　　　・scope_cluster_id = 生成したcluster_id
-　　　　　　　　　　・params_json = {"n_components":2, "n_neighbors":15, "min_dist":0.1, "random_state":42}
-　　　　　　　　　　・is_active = 1
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　・グループ内のcluster・seedについて、layout_pointsにINSERTする
-　　　　　　　　　　・layout_id = 生成したlayout_runs.layout_id
-　　　　　　　　　　・target_type = cluster / seed
-　　　　　　　　　　・target_id = 該当のcluster_id /seed_id
-　　　　　　　　　　・x = 0
-　　　　　　　　　　・y = 0
-　　　　　　　　　　・is_active = 1
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　・グループ内のseedに紐づいているutteranceについて、layout_pointsにINSERTする
-　　　　　　　　　　・layout_id = 生成したlayout_runs.layout_id
-　　　　　　　　　　・target_type = utterance
-　　　　　　　　　　・target_id = 該当のutterance_id
-　　　　　　　　　　・x = 0
-　　　　　　　　　　・y = 0
-　　　　　　　　　　・is_active = 1
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　・分割元が属していたlayout_runsすべてに対して、それぞれ紐づくlayout_printsをINSERTする
-　　　　　　　　　　・layout_id = 分割元が属していたlayout_runs_id
-　　　　　　　　　　・target_type = cluster
-　　　　　　　　　　・target_id = 生成したcluster_id
-　　　　　　　　　　・x = 0
-　　　　　　　　　　・y = 0
-　　　　　　　　　　・is_active = 1
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　・各要素に対してedgesをINSERTする。
-　　　　　　　　　　・edge_id = 生成UUID
-　　　　　　　　　　・src_type = 該当要素
-　　　　　　　　　　・src_id = 該当要素のid
-　　　　　　　　　　・dst_type = cluster
-　　　　　　　　　　・dst_id = 生成したcluster_id
-　　　　　　　　　　・edge_type = part_of
-　　　　　　　　　　・weight = 二つの要素の類似度
-　　　　　　　　　　・is_active = 1
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　　　・updated_at = 現在時刻
-　　　　　　　　・worker_jobsにINSERTする。
-　　　　　　　　　　・job_id = 生成UUID
-　　　　　　　　　　・job_type = cluster_body
-　　　　　　　　　　・target_table = clusters
-　　　　　　　　　　・target_id = 生成したcluster_id
-　　　　　　　　　　・status = queued
-　　　　　　　　　　・priority = 5
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　　　・updated_at = 現在時刻
-　　　　　　　　　　・expires_at = 現在時刻
+・clustersテーブル・layout_runsテーブル・layout_pointsテーブルの全データをDELETEする
 
-・clusterの統合
-　　・edges.dst_type = cluster、edges.edge_type = part_ofで検索したとき10件未満存在するedges.dst_idを探す。
-　　　　・存在しない場合：スキップ
-　　　　・存在する場合：全てのseedに紐づいているembeddings.is_l2_normalized = 1ならば、以下の処理を行う。それ以外の場合はスキップ。
-　　　　　　・対象のclusterはclusters.is_archived = 1、updated_at = 現在時刻にUPDATEする。
-　　　　　　・対象のclusterに紐づくedgesについて(srcとdstのどちらも確認)、is_active = 0、updated_at = 現在時刻にUPDATEする。
-　　　　　　・対象のclusterに紐づくlayout_runsについて、is_active = 0にUPDATEする。
-　　　　　　・対象のclusterに紐づくlayout_ruinsに属していたすべてのlayout_pointsについて、is_active = 0にUPDATEする。
-　　　　　　・対象のclusterが紐づいていたlayout_pointsについて、is_active = 0にUPDATEする。
-　　　　　　・近傍検索し、最も近いclusterを見つける。
-　　　　　　・もともとclusterに紐づいていたseedに対して、以下の処理を行う。
-　　　　　　　　・edgesをINSERTする。
-　　　　　　　　　　・edge_id = 生成UUID
-　　　　　　　　　　・src_type = seed
-　　　　　　　　　　・src_id = 該当seed_id
-　　　　　　　　　　・dst_type = cluster
-　　　　　　　　　　・dst_id = 統合先のcluster_id
-　　　　　　　　　　・edge_type = part_of
-　　　　　　　　　　・weight = 二つの要素の類似度
-　　　　　　　　　　・is_active = 1
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　　　・updated_at = 現在時刻
-　　　　　　　　・cluster・seedについて、layout_pointsにINSERTする
-　　　　　　　　　　・layout_id = 統合先のcluster_idが紐づくlayout_runs.layout_id
-　　　　　　　　　　・target_type = cluster / seed
-　　　　　　　　　　・target_id = 該当のcluster_id /seed_id
-　　　　　　　　　　・x = 0
-　　　　　　　　　　・y = 0
-　　　　　　　　　　・is_active = 1
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　・seedに紐づいているutteranceについて、layout_pointsにINSERTする
-　　　　　　　　　　・layout_id = 統合先のcluster_idが紐づくlayout_runs.layout_id
-　　　　　　　　　　・target_type = utterance
-　　　　　　　　　　・target_id = 該当のutterance_id
-　　　　　　　　　　・x = 0
-　　　　　　　　　　・y = 0
-　　　　　　　　　　・is_active = 1
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　・統合先のclusterに対して以下の処理を行う。
-　　　　　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにUPDATEする
-　　　　　　　　　　・vector = 所属するseedのembeddings.vectorの平均
-　　　　　　　　・worker_jobsにINSERTする。
-　　　　　　　　　　・job_id = 生成UUID
-　　　　　　　　　　・job_type = cluster_body
-　　　　　　　　　　・target_table = clusters
-　　　　　　　　　　・target_id = 統合先cluster_id
-　　　　　　　　　　・status = queued
-　　　　　　　　　　・priority = 5
-　　　　　　　　　　・created_at = 現在時刻
-　　　　　　　　　　・updated_at = 現在時刻
-　　　　　　　　　　・expires_at = 現在時刻
+・clusterの生成
+以下の仕様で「seed・clusterに紐づくembeddings.vectorから、局所密度が異常に高い部分をclusterとして抽出し、さらにcluster内で再帰的に同様の抽出を行う」処理を実装してください。
 
-・clusterの作成
-　　・seed＋既存clusterを含めた近傍30件を対象にする。その中でseedが20個以上存在するかつ距離分布が中央に寄っているかつ近傍5件に既存clusterが存在しない場合、またはclusterが20個以上存在するかつ距離分布が中央に寄っている場合、両者のどちらかを満たしかつ該当要素全てに対して紐づいているembeddings.is_l2_normalized = 1ならばに、clusterを生成する。
-　　　　・clustersをINSERTする
-　　　　　　・cluster_id = 生成UUID
-　　　　　　・cluster_level = cluster
-　　　　　　・is_archived = 0
-　　　　　　・created_at = 現在時刻
-　　　　　　・updated_at = 現在時刻
-　　　　・所属するseedのembeddings.vectorの平均を取得し、embeddingsにINSERTする
-　　　　　　・embedding_id = 生成UUID
-　　　　　　・target_type = cluster
-　　　　　　・target_id = 生成したcluster_id
-　　　　　　・model_name = paraphrase-multilingual
-　　　　　　・dims = ベクトルの次元数（要素数）
-　　　　　　・vector = 所属するseedのembeddings.vectorの平均＆L2正規化
-　　　　　　・is_l2_normalized = 1
-　　　　　　・created_at = 現在時刻
-　　　　・layout_runsにINSERTする
-　　　　　　・layout_id = 生成UUID
-　　　　　　・algorithm = umap
-　　　　　　・dims = 2
-　　　　　　・scope_type = cluster
-　　　　　　・scope_cluster_id = 生成したcluster_id
-　　　　　　・params_json = {"n_components":2, "n_neighbors":15, "min_dist":0.1, "random_state":42}
-　　　　　　・is_active = 1
-　　　　　　・created_at = 現在時刻
-　　　　・対象のcluster・seedについて、layout_pointsにINSERTする
-　　　　　　・layout_id = 生成したlayout_runs.layout_id
-　　　　　　・target_type = cluster / seed
-　　　　　　・target_id = 該当のcluster_id /seed_id
-　　　　　　・x = 0
-　　　　　　・y = 0
-　　　　　　・is_active = 1
-　　　　　　・created_at = 現在時刻
-　　　　・対象のseedに紐づいているutteranceについて、layout_pointsにINSERTする
-　　　　　　・layout_id = 生成したlayout_runs.layout_id
-　　　　　　・target_type = utterance
-　　　　　　・target_id = 該当のutterance_id
-　　　　　　・x = 0
-　　　　　　・y = 0
-　　　　　　・is_active = 1
-　　　　　　・created_at = 現在時刻
-　　　　・近傍を取ったlayout_runsに対して、紐づくlayout_printsをINSERTする
-　　　　　　・layout_id = 近傍を取ったlayout_runs_id
-　　　　　　・target_type = cluster
-　　　　　　・target_id = 生成したcluster_id
-　　　　　　・x = 0
-　　　　　　・y = 0
-　　　　　　・is_active = 1
-　　　　　　・created_at = 現在時刻
-　　　　・各要素に対してedgesをINSERTする。
-　　　　　　・edge_id = 生成UUID
-　　　　　　・src_type = 該当要素
-　　　　　　・src_id = 該当要素のid
-　　　　　　・dst_type = cluster
-　　　　　　・dst_id = 生成したcluster_id
-　　　　　　・edge_type = part_of
-　　　　　　・weight = 二つの要素の類似度
-　　　　　　・is_active = 1
-　　　　　　・created_at = 現在時刻
-　　　　　　・updated_at = 現在時刻
-　　　　・worker_jobsにINSERTする。
-　　　　　　・job_id = 生成UUID
-　　　　　　・job_type = cluster_body
-　　　　　　・target_table = clusters
-　　　　　　・target_id = 生成したcluster_id
-　　　　　　・status = queued
-　　　　　　・priority = 5
-　　　　　　・created_at = 現在時刻
-　　　　　　・updated_at = 現在時刻
-　　　　　　・expires_at = 現在時刻
+# 目的
+- seed・clusterの embedding ベクトル群から「局所的にめちゃくちゃ密度が高い塊」を cluster として切り出す。
+- cluster 内にさらに密な塊があれば、再帰的に sub-cluster を作る（階層構造）。
+- cluster が爆増しないように、明確な停止条件とゲートを持たせる。
+
+# 入力
+- seeds: list[Item]
+  - Item:
+    - id: str
+    - vec: np.ndarray shape=(D,) float32 or float64  (embedding)
+- distance metric:
+  - 原則 cosine distance を使う（1 - cosine similarity）
+  - ただし、入力 vec が L2正規化済みなら cosine distance は 1 - dot(u,v) で計算して良い
+- params: ClusterParams
+  - k_min: int = 5
+  - k_max: int = 30
+  - k_scale: float = 3.0   # k = clamp(round(log(n)*k_scale), k_min, k_max)
+  - percentile: float = 1.0 # d_k の下位 percentile% を候補点にする
+  - min_cluster_size: int = 8
+  - max_depth: int = 8
+  - improvement_alpha: float = 0.75
+    - 再帰ゲート: 子clusterの median(d_k) <= improvement_alpha * 親集合の median(d_k) を満たす場合のみ、子cluster内をさらに再帰探索する
+  - max_clusters_total: int = 5000  # 安全装置（上限を超えたら例外 or 以降の生成停止）
+
+# 出力
+- 生成されたcluster毎に生成
+  - clustersテーブルにINSERT
+    - cluster_id = 生成UUID
+    - cluster_overview = 近傍上位5件のseedのseeds.bodyを改行区切りで連結
+    - cluster_leve = 'cluster'
+    - is_archived = '0'
+    - created_at = 現在時刻
+    - updated_at = 現在時刻
+　- layout_runsテーブルにINSERT
+    - layout_id = 生成UUID
+    - algorithm = 'umap'
+    - dims = '2'
+    - scope_type = 'cluster'
+    - scope_cluster_id = 上記のclusters.cluster_id
+    - params_json = {"n_components": 2, "n_neighbors": 15, "min_dist": 0.1, "random_state": 42}
+    - is_active = '1'
+    - created_at = 現在時刻
+  - clusterに所属するseed・cluster情報、clusterに所属するseedに紐づくutterance情報をlayout_pointsにISERT　※下位のcluster内の情報は含まない
+    - layout_id = 生成UUID
+    - target_type = 'cluster','seed','utterance'
+    - target_id = 'cluster_id','seed_id','utterance_id'
+    - x = '0'
+    - y = '0'
+    - is_active = '1'
+    - created_at = 現在時刻
+
+- clusterに所属しなかった情報
+　- layout_runsテーブルにINSERT
+    - layout_id = 生成UUID
+    - algorithm = 'umap'
+    - dims = '2'
+    - scope_type = 'global'
+    - params_json = {"n_components": 2, "n_neighbors": 15, "min_dist": 0.1, "random_state": 42}
+    - is_active = '1'
+    - created_at = 現在時刻
+  - clusterに所属しなかったseed・cluster情報、clusterに所属しなかったseedに紐づくutterance情報をlayout_pointsにINSERT　※下位のcluster内の情報は含まない
+    - layout_id = 生成UUID
+    - target_type = 'cluster','seed','utterance'
+    - target_id = 'cluster_id','seed_id','utterance_id'
+    - x = '0'
+    - y = '0'
+    - is_active = '1'
+    - created_at = 現在時刻
+
+# アルゴリズム仕様（必須）
+## 1) kNN密度スコア
+- S を対象集合（itemsの部分集合）とする。
+- n = |S|
+- k = clamp(round(log(n) * k_scale), k_min, min(k_max, n-1))
+  - n <= min_cluster_size の場合は、その集合では cluster を生成しない（即停止）
+- 各点 i について、他点との距離を計算し、k番目に近い距離 d_k(i) を求める。
+- 密度は d_k が小さいほど高いとみなす。（ρ = 1/(d_k+eps) を明示的に出しても良いが、判定は d_k で行う）
+
+## 2) 候補点抽出（異常に密な点）
+- d_k(i) の分布の下位 percentile% を閾値にして候補点 C を作る:
+  - threshold = percentile(dk_values, percentile)
+  - C = { i | d_k(i) <= threshold }
+- C が min_cluster_size 未満なら cluster 生成しない（停止）
+
+## 3) 候補点の「塊」切り出し = 近傍グラフの連結成分
+- C 上で kNN グラフを作る（無向で良い）
+  - 各点は、C 内の近い順に min(k, |C|-1) 個へエッジ
+- グラフの連結成分ごとに component を得る。
+- component サイズ < min_cluster_size は捨てる。
+
+## 4) cluster生成と再帰
+- component ごとに Cluster を生成する（member_ids = componentの点 id）
+- 各 cluster について、再帰探索するかを決める:
+  - 親集合の median(d_k) を M_parent とする（親集合=いま処理している S）
+  - 子cluster集合（component）内で、同様に d_k を計算し median を M_child とする
+  - M_child <= improvement_alpha * M_parent を満たす場合のみ、その子集合で再帰を継続
+- max_depth を超えたら停止
+- max_clusters_total を超えたら停止（例外 or 生成停止。どちらにするか実装方針をコメントで明示）
+
+# 実装要件
+- 距離計算はスケールに配慮すること:
+  - n が大きい場合を考慮し、可能なら sklearn.neighbors.NearestNeighbors（metric='cosine'）を利用して良い。
+
+# エッジケース
+- n が小さい（n<=k_min, n<=min_cluster_size）
+- C が空、あるいは連結成分が全部 min_cluster_size 未満
+- 同一点（距離0）が大量にある（d_k=0になる）場合のeps対策
+- 全部が等間隔っぽい場合（候補点が少ない/多い）でも暴走しないこと
+
 
 edgesの再生成
 ・各seedに対して以下の処理を行う。
@@ -424,3 +334,4 @@ edgesの再生成
 
 layoutsの再計算
 ・UMAPを全てのlayout_runsそれぞれに対して実施する。layout_runsに紐づいているlayout_printsの要素のembeddings.venderを用いてx・yを算出する。
+

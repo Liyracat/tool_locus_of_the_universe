@@ -737,8 +737,7 @@ def _handle_embedding_utterance(job: WorkerJob) -> None:
             {"utterance_id": job.target_id},
         ).fetchall()
         if not splits:
-            logger.info("embedding_utterance: no splits for %s", job.target_id)
-            return
+            raise RuntimeError("embedding_utterance: no splits")
 
         split_ids = [row["utterance_split_id"] for row in splits]
         placeholders = ",".join("?" for _ in split_ids)
@@ -753,11 +752,9 @@ def _handle_embedding_utterance(job: WorkerJob) -> None:
         ).fetchall()
 
     if len(rows) != len(split_ids):
-        logger.info("embedding_utterance: missing split embeddings for %s", job.target_id)
-        return
+        raise RuntimeError("embedding_utterance: missing split embeddings")
     if any(row["is_l2_normalized"] != 1 for row in rows):
-        logger.info("embedding_utterance: unnormalized split embeddings for %s", job.target_id)
-        return
+        raise RuntimeError("embedding_utterance: unnormalized split embeddings")
 
     vectors = np.vstack([_decode_vector(row["vector"], row["dims"]) for row in rows]).astype(np.float32)
     mean_vec = vectors.mean(axis=0)
@@ -850,7 +847,7 @@ def _handle_cluster_body(job: WorkerJob) -> None:
             {"cluster_id": job.target_id},
         ).fetchall()
     if not seed_rows:
-        return
+        raise RuntimeError("cluster_body: no seeds")
     joined = "\n".join(row["body"] for row in seed_rows if row["body"])
     prompt = (
         "以下のテキストから概要・まとめを出力してください。\n"
