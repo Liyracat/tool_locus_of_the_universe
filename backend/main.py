@@ -696,6 +696,42 @@ def reprioritize_worker_jobs() -> dict:
     return {"status": "ok", "updated": len(ordered_jobs)}
 
 
+@app.post("/maintenance/seed-refetch", status_code=200)
+def seed_refetch() -> dict:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM seed_merge_candidates")
+        conn.execute("DELETE FROM utterance_seeds")
+        conn.execute("DELETE FROM seeds")
+        utterance_rows = conn.execute(
+            """
+            SELECT utterance_id
+            FROM utterance
+            WHERE did_asked_knowledge = 1
+            """
+        ).fetchall()
+        for row in utterance_rows:
+            conn.execute(
+                """
+                INSERT INTO worker_jobs (
+                  job_id, job_type, target_table, target_id,
+                  status, priority, created_at, updated_at, expires_at
+                ) VALUES (
+                  :job_id, 'did_asked_knowledge', 'utterance', :target_id,
+                  'queued', 990, datetime('now'), datetime('now'), datetime('now')
+                )
+                """,
+                {"job_id": str(uuid.uuid4()), "target_id": row["utterance_id"]},
+            )
+        conn.execute(
+            """
+            UPDATE utterance
+            SET did_asked_knowledge = 0
+            WHERE did_asked_knowledge = 1
+            """
+        )
+    return {"status": "ok", "count": len(utterance_rows)}
+
+
 @app.post("/worker-jobs/{job_id}/retry", status_code=200)
 def retry_worker_job(job_id: str) -> dict:
     with get_conn() as conn:
@@ -789,7 +825,7 @@ def update_seed(seed_id: str, payload: SeedUpdate) -> dict:
                   status, priority, created_at, updated_at, expires_at
                 ) VALUES (
                   :job_id, 'embedding', 'seed', :target_id,
-                  'queued', 999, datetime('now'), datetime('now'), datetime('now')
+                  'queued', 1, datetime('now'), datetime('now'), datetime('now')
                 )
                 """,
                 {"job_id": str(uuid.uuid4()), "target_id": seed_id},
@@ -1206,7 +1242,7 @@ def split_editor_seed(payload: SplitEditorSeedRequest) -> dict:
               status, priority, created_at, updated_at, expires_at
             ) VALUES (
               :job_id, 'embedding', 'seed', :target_id,
-              'queued', 999, datetime('now'), datetime('now'), datetime('now')
+              'queued', 1, datetime('now'), datetime('now'), datetime('now')
             )
             """,
             {

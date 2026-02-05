@@ -200,6 +200,26 @@ export default function SettingsPage() {
     }
   };
 
+  const seedRefetch = async () => {
+    setStatus(null);
+    try {
+      const result = await api.seedRefetch();
+      setStatus(`seed再取得を開始しました（${result.count}件）`);
+      await loadAll();
+      const jobs = await api.listWorkerJobs(jobPage, jobsPerPage);
+      setWorkerJobs(jobs.items);
+      setWorkerJobsTotal(jobs.total);
+      const mergeResult = await api.listSeedMergeCandidatesAll(mergePage, mergePerPage);
+      setMergeCandidates(mergeResult.items);
+      setMergeTotal(mergeResult.total);
+      const seedResult = await api.listUnreviewedSeeds(seedPage, seedPerPage);
+      setUnreviewedSeeds(seedResult.items);
+      setUnreviewedTotal(seedResult.total);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "seed再取得に失敗しました");
+    }
+  };
+
   const retryJob = async (job_id: string) => {
     setStatus(null);
     try {
@@ -354,6 +374,9 @@ export default function SettingsPage() {
         <div className="header-actions">
           <button type="button" className="button tiny ghost" onClick={reprioritizeWorkerJobs}>
             優先順位自動採番
+          </button>
+          <button type="button" className="button tiny ghost" onClick={seedRefetch}>
+            seed再取得
           </button>
           <button type="button" className="button tiny ghost" onClick={purgeUnusedData}>
             不要データ削除

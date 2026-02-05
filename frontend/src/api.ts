@@ -297,6 +297,11 @@ export const api = {
       method: "POST",
     });
   },
+  seedRefetch() {
+    return request<{ status: string; count: number }>(`/api/maintenance/seed-refetch`, {
+      method: "POST",
+    });
+  },
   getWorkerTarget(target_table: string, target_id: string) {
     const query = new URLSearchParams({ target_table, target_id });
     return request<WorkerTargetInfo>(`/api/worker-target?${query.toString()}`);
