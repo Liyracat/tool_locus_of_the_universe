@@ -310,18 +310,24 @@ export default function SettingsPage() {
     }
   };
 
-  const handleMergeApprove = async (candidate: SeedMergeCandidateListItem) => {
+  const handleMergeApprove = async (
+    candidate: SeedMergeCandidateListItem,
+    direction: "a" | "b"
+  ) => {
     setStatus(null);
     try {
-      const related = await api.listSeedMergeCandidates(candidate.seed_b_id);
+      const targetSeedId = direction === "a" ? candidate.seed_b_id : candidate.seed_a_id;
+      const canonicalSeedId = direction === "a" ? candidate.seed_a_id : candidate.seed_b_id;
+      const targetBody = direction === "a" ? candidate.seed_b_body : candidate.seed_a_body;
+      const related = await api.listSeedMergeCandidates(targetSeedId);
       const rejectIds = related
         .map((item) => item.candidate_id)
         .filter((id) => id !== candidate.candidate_id);
       await api.updateSeed({
-        seed_id: candidate.seed_b_id,
+        seed_id: targetSeedId,
         seed_type: "seed",
-        body: candidate.seed_b_body ?? "",
-        canonical_seed_id: candidate.seed_a_id,
+        body: targetBody ?? "",
+        canonical_seed_id: canonicalSeedId,
         review_status: null,
       });
       await api.resolveSeedMergeCandidates({
@@ -728,8 +734,19 @@ export default function SettingsPage() {
                   <td>{item.reason}</td>
                   <td>{typeof item.similarity === "number" ? item.similarity.toFixed(3) : ""}</td>
                   <td className="sticky-col">
-                    <button type="button" className="button tiny" onClick={() => handleMergeApprove(item)}>
-                      統合
+                    <button
+                      type="button"
+                      className="button tiny"
+                      onClick={() => handleMergeApprove(item, "a")}
+                    >
+                      aに統合
+                    </button>
+                    <button
+                      type="button"
+                      className="button tiny ghost"
+                      onClick={() => handleMergeApprove(item, "b")}
+                    >
+                      bに統合
                     </button>
                     <button
                       type="button"
