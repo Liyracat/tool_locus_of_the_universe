@@ -43,6 +43,7 @@ export default function SettingsPage() {
   const [mergeTotal, setMergeTotal] = useState(0);
   const [unreviewedSeeds, setUnreviewedSeeds] = useState<UnreviewedSeed[]>([]);
   const [unreviewedTotal, setUnreviewedTotal] = useState(0);
+  const [unreviewedSeedBodies, setUnreviewedSeedBodies] = useState<Record<string, string>>({});
 
   const loadAll = async () => {
     try {
@@ -105,6 +106,15 @@ export default function SettingsPage() {
         const result = await api.listUnreviewedSeeds(seedPage, seedPerPage);
         setUnreviewedSeeds(result.items);
         setUnreviewedTotal(result.total);
+        setUnreviewedSeedBodies((prev) => {
+          const next = { ...prev };
+          result.items.forEach((seed) => {
+            if (!(seed.seed_id in next)) {
+              next[seed.seed_id] = seed.body ?? "";
+            }
+          });
+          return next;
+        });
       } catch (err) {
         setStatus(err instanceof Error ? err.message : "未レビューseedの取得に失敗しました");
       }
@@ -358,10 +368,11 @@ export default function SettingsPage() {
   const handleSeedReview = async (seed: UnreviewedSeed, nextStatus: "reviewed" | "rejected") => {
     setStatus(null);
     try {
+      const nextBody = unreviewedSeedBodies[seed.seed_id] ?? seed.body ?? "";
       await api.updateSeed({
         seed_id: seed.seed_id,
         seed_type: seed.seed_type,
-        body: seed.body ?? "",
+        body: nextBody,
         canonical_seed_id: null,
         review_status: nextStatus,
       });
@@ -810,7 +821,19 @@ export default function SettingsPage() {
               {unreviewedSeeds.map((seed) => (
                 <tr key={seed.seed_id}>
                   <td>{seed.seed_type}</td>
-                  <td className="contents-cell">{seed.body ?? ""}</td>
+                  <td className="contents-cell">
+                    <textarea
+                      className="textarea"
+                      rows={3}
+                      value={unreviewedSeedBodies[seed.seed_id] ?? seed.body ?? ""}
+                      onChange={(event) =>
+                        setUnreviewedSeedBodies((prev) => ({
+                          ...prev,
+                          [seed.seed_id]: event.target.value,
+                        }))
+                      }
+                    />
+                  </td>
                   <td className="sticky-col">
                     <button
                       type="button"
