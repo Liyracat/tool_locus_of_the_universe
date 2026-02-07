@@ -59,7 +59,7 @@ def call_ollama(prompt: str, model_name: str | None = None) -> dict[str, Any]:
     )
     logger.info("Ollama request prompt: %s", prompt)
     try:
-        with urllib.request.urlopen(req, timeout=600) as resp:
+        with urllib.request.urlopen(req, timeout=1800) as resp:
             body = resp.read().decode("utf-8")
             logger.info("Ollama response status=%s body=%s", resp.status, body)
             return json.loads(body)
@@ -82,7 +82,7 @@ def call_ollama_embedding(text: str, model_name: str | None = None) -> list[floa
     )
     logger.info("Ollama embedding request length=%s text=%s", len(text), text)
     try:
-        with urllib.request.urlopen(req, timeout=600) as resp:
+        with urllib.request.urlopen(req, timeout=1800) as resp:
             body = resp.read().decode("utf-8")
             logger.info("Ollama embedding response status=%s", resp.status)
             data = json.loads(body)
