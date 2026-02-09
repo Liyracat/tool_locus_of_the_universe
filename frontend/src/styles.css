@@ -419,6 +419,7 @@ select.input {
 .table th.sticky-col,
 .table td.sticky-col {
   position: sticky;
+  width: 200px;
   right: 0;
   z-index: 2;
   background: rgba(15, 23, 42, 0.9);
@@ -427,6 +428,11 @@ select.input {
 
 .contents-cell {
   white-space: pre-wrap;
+}
+
+.contents-cell-seed {
+  white-space: pre-wrap;
+  width: 80%
 }
 
 .empty-cell {

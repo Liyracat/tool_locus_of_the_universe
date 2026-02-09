@@ -821,7 +821,7 @@ export default function SettingsPage() {
               {unreviewedSeeds.map((seed) => (
                 <tr key={seed.seed_id}>
                   <td>{seed.seed_type}</td>
-                  <td className="contents-cell">
+                  <td className="contents-cell-seed">
                     <textarea
                       className="textarea"
                       rows={3}
