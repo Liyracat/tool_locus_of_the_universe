@@ -603,6 +603,35 @@ def _load_seed_utterances(seed_ids: list[str]) -> dict[str, list[str]]:
     return mapping
 
 
+def _insert_layout_point_if_needed(
+    conn: sqlite3.Connection,
+    layout_id: str,
+    target_type: str,
+    target_id: str,
+) -> None:
+    # Skip inserting the same id as the run scope cluster.
+    run = conn.execute(
+        """
+        SELECT scope_cluster_id
+        FROM layout_runs
+        WHERE layout_id = :layout_id
+        """,
+        {"layout_id": layout_id},
+    ).fetchone()
+    if run and run["scope_cluster_id"] == target_id:
+        return
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO layout_points (
+          layout_id, target_type, target_id, x, y, is_active, created_at
+        ) VALUES (
+          :layout_id, :target_type, :target_id, 0, 0, 1, datetime('now')
+        )
+        """,
+        {"layout_id": layout_id, "target_type": target_type, "target_id": target_id},
+    )
+
+
 def _insert_clusters_and_layouts(
     clusters: list[ClusterNode],
     seed_to_utterance: dict[str, list[str]],
@@ -681,51 +710,15 @@ def _insert_clusters_and_layouts(
                 },
             )
 
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO layout_points (
-                  layout_id, target_type, target_id, x, y, is_active, created_at
-                ) VALUES (
-                  :layout_id, 'cluster', :target_id, 0, 0, 1, datetime('now')
-                )
-                """,
-                {"layout_id": layout_id, "target_id": node.cluster_id},
-            )
+            _insert_layout_point_if_needed(conn, layout_id, "cluster", node.cluster_id)
 
             for seed_id in node.direct_seed_ids:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO layout_points (
-                      layout_id, target_type, target_id, x, y, is_active, created_at
-                    ) VALUES (
-                      :layout_id, 'seed', :target_id, 0, 0, 1, datetime('now')
-                    )
-                    """,
-                    {"layout_id": layout_id, "target_id": seed_id},
-                )
+                _insert_layout_point_if_needed(conn, layout_id, "seed", seed_id)
                 for utterance_id in seed_to_utterance.get(seed_id, []):
-                    conn.execute(
-                        """
-                        INSERT OR REPLACE INTO layout_points (
-                          layout_id, target_type, target_id, x, y, is_active, created_at
-                        ) VALUES (
-                          :layout_id, 'utterance', :target_id, 0, 0, 1, datetime('now')
-                        )
-                        """,
-                        {"layout_id": layout_id, "target_id": utterance_id},
-                    )
+                    _insert_layout_point_if_needed(conn, layout_id, "utterance", utterance_id)
 
             for child_id in node.child_cluster_ids:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO layout_points (
-                      layout_id, target_type, target_id, x, y, is_active, created_at
-                    ) VALUES (
-                      :layout_id, 'cluster', :target_id, 0, 0, 1, datetime('now')
-                    )
-                    """,
-                    {"layout_id": layout_id, "target_id": child_id},
-                )
+                _insert_layout_point_if_needed(conn, layout_id, "cluster", child_id)
 
 
 def _insert_global_layout(
@@ -756,16 +749,7 @@ def _insert_global_layout(
             c.cluster_id if isinstance(c, ClusterNode) else c for c in top_level_clusters
         ]
         for cluster_id in cluster_ids:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO layout_points (
-                  layout_id, target_type, target_id, x, y, is_active, created_at
-                ) VALUES (
-                  :layout_id, 'cluster', :target_id, 0, 0, 1, datetime('now')
-                )
-                """,
-                {"layout_id": layout_id, "target_id": cluster_id},
-            )
+            _insert_layout_point_if_needed(conn, layout_id, "cluster", cluster_id)
 
         if assigned_seed_ids:
             placeholders = ",".join("?" for _ in assigned_seed_ids)
@@ -792,27 +776,9 @@ def _insert_global_layout(
             unassigned_seed_ids = [row["seed_id"] for row in rows]
 
         for seed_id in unassigned_seed_ids:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO layout_points (
-                  layout_id, target_type, target_id, x, y, is_active, created_at
-                ) VALUES (
-                  :layout_id, 'seed', :target_id, 0, 0, 1, datetime('now')
-                )
-                """,
-                {"layout_id": layout_id, "target_id": seed_id},
-            )
+            _insert_layout_point_if_needed(conn, layout_id, "seed", seed_id)
             for utterance_id in seed_to_utterance.get(seed_id, []):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO layout_points (
-                      layout_id, target_type, target_id, x, y, is_active, created_at
-                    ) VALUES (
-                      :layout_id, 'utterance', :target_id, 0, 0, 1, datetime('now')
-                    )
-                    """,
-                    {"layout_id": layout_id, "target_id": utterance_id},
-                )
+                _insert_layout_point_if_needed(conn, layout_id, "utterance", utterance_id)
 
 
 def _regenerate_edges() -> None:
@@ -1213,27 +1179,9 @@ def _insert_layout_points_for_cluster(
             _insert_layout_points_for_cluster(layout_id, cluster_id, seed_ids, conn=conn_local)
         return
 
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO layout_points (
-          layout_id, target_type, target_id, x, y, is_active, created_at
-        ) VALUES (
-          :layout_id, 'cluster', :cluster_id, 0, 0, 1, datetime('now')
-        )
-        """,
-        {"layout_id": layout_id, "cluster_id": cluster_id},
-    )
+    _insert_layout_point_if_needed(conn, layout_id, "cluster", cluster_id)
     for seed_id in seed_ids:
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO layout_points (
-              layout_id, target_type, target_id, x, y, is_active, created_at
-            ) VALUES (
-              :layout_id, 'seed', :seed_id, 0, 0, 1, datetime('now')
-            )
-            """,
-            {"layout_id": layout_id, "seed_id": seed_id},
-        )
+        _insert_layout_point_if_needed(conn, layout_id, "seed", seed_id)
     utterance_rows = (
         conn.execute(
             """
@@ -1247,16 +1195,7 @@ def _insert_layout_points_for_cluster(
         else []
     )
     for row in utterance_rows:
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO layout_points (
-              layout_id, target_type, target_id, x, y, is_active, created_at
-            ) VALUES (
-              :layout_id, 'utterance', :utterance_id, 0, 0, 1, datetime('now')
-            )
-            """,
-            {"layout_id": layout_id, "utterance_id": row["utterance_id"]},
-        )
+        _insert_layout_point_if_needed(conn, layout_id, "utterance", row["utterance_id"])
 
 
 def _insert_cluster_into_existing_layout_runs(source_cluster_id: str, new_cluster_id: str) -> None:
@@ -1270,16 +1209,7 @@ def _insert_cluster_into_existing_layout_runs(source_cluster_id: str, new_cluste
             {"cluster_id": source_cluster_id},
         ).fetchall()
         for run in runs:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO layout_points (
-                  layout_id, target_type, target_id, x, y, is_active, created_at
-                ) VALUES (
-                  :layout_id, 'cluster', :cluster_id, 0, 0, 1, datetime('now')
-                )
-                """,
-                {"layout_id": run["layout_id"], "cluster_id": new_cluster_id},
-            )
+            _insert_layout_point_if_needed(conn, run["layout_id"], "cluster", new_cluster_id)
 
 
 def _insert_layout_points_into_cluster_runs(cluster_id: str, seed_ids: list[str]) -> None:
@@ -1316,16 +1246,7 @@ def _insert_cluster_into_neighbor_layout_runs(
             params,
         ).fetchall()
         for run in runs:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO layout_points (
-                  layout_id, target_type, target_id, x, y, is_active, created_at
-                ) VALUES (
-                  :layout_id, 'cluster', :cluster_id, 0, 0, 1, datetime('now')
-                )
-                """,
-                {"layout_id": run["layout_id"], "cluster_id": new_cluster_id},
-            )
+            _insert_layout_point_if_needed(conn, run["layout_id"], "cluster", new_cluster_id)
 
 
 def _deactivate_layout_points_for_neighbors(neighbor_ids: list[tuple[str, str]]) -> None:
