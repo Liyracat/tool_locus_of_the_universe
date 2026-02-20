@@ -62,11 +62,11 @@ export default function SettingsPage() {
     void loadAll();
   }, []);
 
-  const jobsPerPage = 50;
+  const jobsPerPage = 20;
   const totalJobPages = Math.max(1, Math.ceil(workerJobsTotal / jobsPerPage));
   const pagedJobs = workerJobs;
-  const mergePerPage = 50;
-  const seedPerPage = 50;
+  const mergePerPage = 10;
+  const seedPerPage = 6;
   const totalMergePages = Math.max(1, Math.ceil(mergeTotal / mergePerPage));
   const totalSeedPages = Math.max(1, Math.ceil(unreviewedTotal / seedPerPage));
 
@@ -808,6 +808,29 @@ export default function SettingsPage() {
         <div className="panel-row">
           <div className="section-title">未レビュー seeds 一覧</div>
         </div>
+          {totalSeedPages > 1 && (
+          <div className="panel-row">
+            <button
+              type="button"
+              className="button tiny ghost"
+              onClick={() => setSeedPage((prev) => Math.max(1, prev - 1))}
+              disabled={seedPage <= 1}
+            >
+              前へ
+            </button>
+            <div className="mono">
+              {seedPage} / {totalSeedPages}
+            </div>
+            <button
+              type="button"
+              className="button tiny ghost"
+              onClick={() => setSeedPage((prev) => Math.min(totalSeedPages, prev + 1))}
+              disabled={seedPage >= totalSeedPages}
+            >
+              次へ
+            </button>
+          </div>
+        )}
         <div className="table-wrapper">
           <table className="table">
             <thead>

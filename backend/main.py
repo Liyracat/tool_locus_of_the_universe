@@ -963,7 +963,7 @@ def list_seed_merge_candidates_all(limit: int = 50, offset: int = 0) -> dict:
               AND (sb.review_status IS NULL OR sb.review_status != 'rejected')
               AND (sa.canonical_seed_id IS NULL OR sa.canonical_seed_id = '')
               AND (sb.canonical_seed_id IS NULL OR sb.canonical_seed_id = '')
-            ORDER BY c.created_at DESC
+            ORDER BY c.reason ASC, c.similarity DESC, c.created_at ASC
             LIMIT :limit OFFSET :offset
             """,
             {"limit": limit, "offset": offset},
